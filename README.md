@@ -7,12 +7,12 @@
 ## O que este `.bat` faz automaticamente (adaptado às peças do seu PC)
 
 ### 1. 4 Perfis de GPU no MSI Afterburner (Undervolt + Overclock dinâmicos e seguros)
-O script preserva seu **`Slot 1` (`[Profile1]`) intacto como backup** e calibra automaticamente **4 curvas Voltage/Frequency (`VFCurve`) + Overclock de VRAM + Power Limit** nos Slots `2` a `5`, calculados em cima da tabela `[Defaults]` da sua GPU e tipo de sistema (Desktop/Notebook):
+O script preserva seu **`Slot 1` (`[Profile1]`) intacto como backup** (e grava `[Startup]` sempre no nível seguro **Leve** para evitar instabilidade na inicialização), calibrando automaticamente **4 curvas Voltage/Frequency (`VFCurve`) + Overclock de VRAM + Power Limit** nos Slots `2` a `5` sobre a tabela `[Defaults]` da sua GPU e tipo de sistema (Desktop/Notebook):
 
 * **`Slot 2` — Desempenho Leve (`-leve`):** *Undervolt* + *Overclock Leve* com margem de estabilidade ampliada. Ideal para uso diário gamer com temperatura baixa e silêncio.
-* **`Slot 3` — Desempenho Médio (`-medio`):** *Undervolt* + *Overclock Médio* balanceado (~1.45x Core / ~1.5x VRAM em GPUs dedicadas), com teto de tensão otimizado. Ideal para jogos competitivos, streaming ou edição.
-* **`Slot 4` — Desempenho Alto (`-alto`):** *Undervolt* + *Overclock Alto Máximo Seguro* mantendo teto de tensão abaixo do limite *stock* de fábrica para evitar estrangulamento térmico/TDP e travamentos em picos de carga. Ideal para jogos AAA pesados, **Jogo + Live/Gravação simultâneos** ou **renderização / IA (SDXL)**.
-* **`Slot 5` — Economia (`-economia`):** *Undervolt* de Eficiência + *Power Limit* mínimo estável, reduzindo consumo e temperatura na área de trabalho quando nenhum jogo ou processo pesado está aberto.
+* **`Slot 3` — Desempenho Médio (`-medio`):** *Undervolt* + *Overclock Médio* balanceado (~1.5x Core / ~1.66x VRAM sobre o perfil Leve), com teto de tensão otimizado. Ideal para jogos competitivos, streaming ou edição.
+* **`Slot 4` — Desempenho Boost (`-boost` | Padrão Principal):** *Undervolt* pronunciado + *Overclock Boost Seguro* mantendo o teto de tensão bem abaixo do limite *stock* de fábrica (evitando estrangulamento térmico/TDP, *BusReset TDR* PCIe em GPUs alimentadas pelo slot e travamentos sob carga pesada). Ideal como predefinição principal para jogos pesados, **Jogo + Live/Gravação simultâneos** ou **renderização / IA (SDXL)**.
+* **`Slot 5` — Economia (`-economia`):** *Undervolt* de Eficiência + *Power Limit* reduzido, derrubando consumo e temperatura na área de trabalho quando nenhum jogo ou processo pesado está aberto. *(Em Desktop, força `PCIe ASPM = Desligado` em todos os planos de energia para evitar desconexões do barramento da GPU ao alternar para Economia).*
 
 ---
 
@@ -31,7 +31,7 @@ O script preserva seu **`Slot 1` (`[Profile1]`) intacto como backup** e calibra 
 ### 3. Otimizações de SDXL, IA Local & DSL / DirectStorage (`-sdxl`, `[13]`)
 * **Variáveis CUDA / PyTorch Low-VRAM Automáticas:** Configura no perfil do usuário `CUDA_MODULE_LOADING=LAZY`, `SAFETENSORS_FAST_GPU=1` e (em GPUs `<= 4 GB` VRAM) `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.6,max_split_size_mb:128` para evitar falta de memória (`CUDA OOM`) e acelerar o carregamento de *checkpoints* SDXL.
 * **Flags Específicas por Arquitetura + Launcher (`Start_SDXL_Optimized.bat`):** Localiza instalações de **ComfyUI, Stable Diffusion WebUI (A1111), Forge, Fooocus e SD.Next** nos discos e prepara os parâmetros ideais (ex.: `--lowvram --opt-sdp-attention --no-half-vae --disable-nan-check` em arquiteturas Pascal ou anteriores, evitando o erro `NaN`/tela preta no VAE de SDXL sem duplicar o peso do modelo com `--no-half`).
-* **Monitor Inteligente para Workloads de IA & Windows Game Mode:** Detecta execução pesada de IA/SDXL (`python > 600 MB`, `comfyui`, `ollama`, etc.) elevando energia + GPU para **Alto** durante a geração e retornando automaticamente para **Economia** após o término. Também ativa *Windows Game Mode* (`AllowAutoGameMode` / `AutoGameModeEnabled`) e ajustes de energia/PCIe compatíveis com cargas rápidas de textura e **DirectStorage (DSL/DLSS bridge)**.
+* **Monitor Inteligente para Workloads de IA & Windows Game Mode:** Detecta execução pesada de IA/SDXL (`python > 600 MB`, `comfyui`, `ollama`, etc.) elevando energia + GPU para **Boost** durante a geração e retornando automaticamente para **Economia** após o término. Também ativa *Windows Game Mode* (`AllowAutoGameMode` / `AutoGameModeEnabled`) e ajustes de energia/PCIe compatíveis com cargas rápidas de textura e **DirectStorage (DSL/DLSS bridge)**.
 
 ---
 
@@ -48,10 +48,13 @@ O script preserva seu **`Slot 1` (`[Profile1]`) intacto como backup** e calibra 
   * Durante jogos, IA ou streaming, reduz prioridade de navegadores e auxiliares (`Brave, Chrome, Edge, Firefox, Opera, steamwebhelper, SearchIndexer`) para `Idle` e eleva a prioridade de jogos, upscalers, OBS, IA e editores/DAWs (`High` / `AboveNormal`).
 * **Predefinições de Áudio/Imagem (`Jogos` vs `Streaming`) e Proteção de Contraste:**
   * Garante **RGB Completo (`0-255`)**, Gama linear `1.0`, remoção de `OverlayTestMode` e `GameDVR_FSEBehaviorMode = 0` com proteção **DDC/CI** para evitar imagem lavada / filtro branco.
+* **Reparo Automático de Erros do Windows (`-reparar` / `[14]`):**
+  * Força `PCIe ASPM = Desligado` e `Disk Idle = 0` em todos os planos de Desktop (evita quedas de barramento GPU `BusReset TDR` e erros de E/S em disco).
+  * Remove serviços de drivers órfãos com `.sys` ausente (`SCM 7000`), limpa e recompila `Autorecover MOFs` + repositório WMI, corrige conflito VBS/HVCI (`Kernel-Boot 124`), instala drivers oficiais `PCI\VEN_` pendentes via Windows Update, agenda reparo offline seguro de NTFS no próximo boot (`fsutil dirty set`) se houver corrupção recente e executa `DISM` + `sfc /scannow` sem usar varreduras online que possam congelar o sistema.
 * **Monitor Automático em Segundo Plano (`Auto` ou Nível Fixo):**
   * **Leve** para aplicativos pesados desconhecidos (`> 550 MB` RAM).
   * **Médio** para jogos comuns, **OBS Studio** ou editores/DAWs (**Premiere, DaVinci Resolve, Vegas, After Effects, CapCut, Blender, FL Studio, Audacity, Reaper, Photoshop, Visual Studio**, etc.).
-  * **Alto** para jogos AAA ultra-pesados, renderização/IA (**SDXL/ComfyUI/Python IA**) ou jogo + OBS simultâneos.
+  * **Boost** para jogos AAA ultra-pesados, renderização/IA (**SDXL/ComfyUI/Python IA**) ou jogo + OBS simultâneos.
   * Retorna sozinho para **Economia (`Slot 5`)** 12 segundos após fechar os programas pesados.
 
 ---
@@ -60,12 +63,12 @@ O script preserva seu **`Slot 1` (`[Profile1]`) intacto como backup** e calibra 
 
 ### Pelo Menu Interativo (clique duplo)
 Execute **`Modo_Jogo_Automatico.bat`** como Administrador e escolha:
-* **`[1]` Calibrar Tudo** *(4 Perfis UV+OC + OBS + Realtek + FSR/Jogos + SDXL + Apps)* e ativar **Desempenho Leve**
+* **`[1]` Calibrar Tudo** *(4 Perfis UV+OC + OBS + Realtek + FSR/SDXL + Fix ASPM)* e ativar **Desempenho Boost** *(padrão principal)*
 * **`[2]`** Ativar **Desempenho Médio** (`Slot 3`) — escolha Predefinição Jogos ou Streaming
-* **`[3]`** Ativar **Desempenho Alto** (`Slot 4`) — escolha Predefinição Jogos ou Streaming
+* **`[3]`** Ativar **Desempenho Boost** (`Slot 4`) — escolha Predefinição Jogos ou Streaming
 * **`[4]`** Ativar **Modo Economia** (`Slot 5` + plano econômico)
 * **`[5]`** Alternar **Predefinições Áudio/Imagem** (*Jogos* vs *Streaming*) e recalibrar programas
-* **`[6]`** Configurar **Nível Automático** (*Auto Inteligente* ou Fixo em *Leve / Médio / Alto*)
+* **`[6]`** Configurar **Nível Automático** (*Auto Inteligente* ou Fixo em *Leve / Médio / Boost*)
 * **`[7]`** Iniciar Monitor Automático nesta janela *(jogos, OBS, IA/SDXL e apps)*
 * **`[8]`** Instalar Automação no Windows (*inicia oculto no logon via Tarefa Agendada `ModoJogoAutomatico_MSIAfterburner`*)
 * **`[9]`** Desinstalar Automação e restaurar backups (`.bak_modojogo` do Afterburner, OBS, Discord, Wallpaper Engine, CS2 e Overwatch)
@@ -73,19 +76,22 @@ Execute **`Modo_Jogo_Automatico.bat`** como Administrador e escolha:
 * **`[11]`** Exibir Diagnóstico Completo (Peças, 4 Perfis GPU, Áudio, OBS, FSR e SDXL)
 * **`[12]`** **AMD FSR Universal + Jogos** (calibrar CS2/Overwatch + instalar Magpie & OptiScaler)
 * **`[13]`** **Otimizações SDXL & IA** (variáveis CUDA Lazy, PyTorch Low-VRAM e launchers WebUI/ComfyUI)
+* **`[14]`** **Reparar Erros do Windows** (ASPM, Drivers Órfãos, WMI, HVCI 124, Drivers PCI WU, Boot NTFS seguro & DISM/SFC)
 
 ### Parâmetros diretos via CMD / Atalho
 ```cmd
 Modo_Jogo_Automatico.bat -calibrar
 Modo_Jogo_Automatico.bat -leve
 Modo_Jogo_Automatico.bat -medio
-Modo_Jogo_Automatico.bat -alto
+Modo_Jogo_Automatico.bat -boost
+Modo_Jogo_Automatico.bat -desempenho
 Modo_Jogo_Automatico.bat -economia
 Modo_Jogo_Automatico.bat -presetjogos
 Modo_Jogo_Automatico.bat -presetstream
 Modo_Jogo_Automatico.bat -fsr
 Modo_Jogo_Automatico.bat -instalarfsr
 Modo_Jogo_Automatico.bat -sdxl
+Modo_Jogo_Automatico.bat -reparar
 Modo_Jogo_Automatico.bat -monitor
 Modo_Jogo_Automatico.bat -auto
 Modo_Jogo_Automatico.bat -corrigircor
@@ -130,9 +136,9 @@ $ErrorActionPreference = 'SilentlyContinue'
 $SlotBackupOriginal = 1      # Slot preservado intacto (referencia do usuario)
 $SlotLeve           = 2      # Slot MSI Afterburner: DESEMPENHO LEVE (Undervolt + Leve OC)
 $SlotMedio          = 3      # Slot MSI Afterburner: DESEMPENHO MEDIO (Undervolt + Medio OC)
-$SlotAlto           = 4      # Slot MSI Afterburner: DESEMPENHO ALTO (Undervolt + Alto OC Seguro)
+$SlotBoost          = 4      # Slot MSI Afterburner: DESEMPENHO BOOST (Undervolt + Boost OC Seguro)
 $EcoSlot            = 5      # Slot MSI Afterburner: ECONOMIA (Undervolt Eficiencia)
-$DefaultAutoTier    = 'Auto' # 'Auto' (inteligente por programa), 'Leve', 'Medio' ou 'Alto'
+$DefaultAutoTier    = 'Auto' # 'Auto' (inteligente por programa), 'Leve', 'Medio' ou 'Boost'
 $PerfCoreOffsetMHz  = 0      # 0 = automatico por hardware (tier Leve); >0 sobrescreve base Core
 $PerfMemOffsetMHz   = 0      # 0 = automatico por hardware (tier Leve); >0 sobrescreve base VRAM
 $AutoFixContrast    = $true  # $true corrige automaticamente filtro branco/contraste (RGB Full, Gama, DDC)
@@ -210,7 +216,8 @@ function Get-ModoJogoConfig {
     if (Test-Path $ConfigFile) {
         try {
             $raw = Get-Content -Path $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($raw.AutoPerfTier -in @('Auto','Leve','Medio','Alto')) { $cfg.AutoPerfTier = $raw.AutoPerfTier }
+            if ($raw.AutoPerfTier -eq 'Alto') { $cfg.AutoPerfTier = 'Boost' }
+            elseif ($raw.AutoPerfTier -in @('Auto','Leve','Medio','Boost')) { $cfg.AutoPerfTier = $raw.AutoPerfTier }
             if ($raw.ActiveAVPreset -in @('Jogos','Streaming','Economia')) { $cfg.ActiveAVPreset = $raw.ActiveAVPreset }
         } catch {}
     }
@@ -220,7 +227,8 @@ function Get-ModoJogoConfig {
 function Save-ModoJogoConfig {
     param([string]$AutoPerfTier, [string]$ActiveAVPreset)
     $cur = Get-ModoJogoConfig
-    if ($AutoPerfTier -in @('Auto','Leve','Medio','Alto')) { $cur.AutoPerfTier = $AutoPerfTier }
+    if ($AutoPerfTier -eq 'Alto') { $AutoPerfTier = 'Boost' }
+    if ($AutoPerfTier -in @('Auto','Leve','Medio','Boost')) { $cur.AutoPerfTier = $AutoPerfTier }
     if ($ActiveAVPreset -in @('Jogos','Streaming','Economia')) { $cur.ActiveAVPreset = $ActiveAVPreset }
     try {
         if (-not (Test-Path $InstallDir)) { New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null }
@@ -374,6 +382,23 @@ function Get-PowerSchemeIds {
     }
 }
 
+function Ensure-SafeDesktopPowerSettings {
+    param($Hw)
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    if ($Hw.IsLaptop -or (-not (Test-IsAdmin))) { return }
+    try {
+        foreach ($sl in (powercfg /list)) {
+            if ($sl -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') {
+                $g = $matches[1]
+                # Desliga PCIe ASPM (evita nvlddmkm 153 BusReset TDR em GPUs PCIe 75W) e evita spin-down agressivo de HDD (disk 153)
+                powercfg /setacvalueindex $g 501a4d13-42af-4429-9fd1-a8218c268e20 ee12f906-d277-404b-b6da-e5fa1a576df5 0 2>$null | Out-Null
+                powercfg /setdcvalueindex $g 501a4d13-42af-4429-9fd1-a8218c268e20 ee12f906-d277-404b-b6da-e5fa1a576df5 0 2>$null | Out-Null
+                powercfg /setacvalueindex $g 0012ee47-9041-4b5d-9b77-535fba8b1442 6738e2c4-e8a5-4a42-b16a-e040e769756e 0 2>$null | Out-Null
+            }
+        }
+    } catch {}
+}
+
 function Set-IniSection {
     param(
         [string]$FilePath,
@@ -440,21 +465,21 @@ function Get-GpuTuningPlan {
     param($Hw)
     $isDedicated = ($Hw.VramMB -ge 1500 -and $Hw.GpuVendor -in @('NVIDIA','AMD'))
     $baseCore = 0; $baseMem = 0; $ecoBoost = 0
-    $medCoreMult = 1.45; $medMemMult = 1.50
-    $highCoreMult = 1.88; $highMemMult = 2.12
+    $medCoreMult = 1.50; $medMemMult = 1.67
+    $highCoreMult = 1.88; $highMemMult = 2.17
 
     if ($isDedicated) {
         if ($Hw.IsLaptop) {
             $baseCore = 25; $baseMem = 100; $ecoBoost = 15
-            $medCoreMult = 1.50; $medMemMult = 1.50
-            $highCoreMult = 1.90; $highMemMult = 2.00
+            $medCoreMult = 1.40; $medMemMult = 1.50
+            $highCoreMult = 1.80; $highMemMult = 2.00
         } elseif ($Hw.GpuVendor -eq 'NVIDIA') {
             if ($Hw.VramMB -ge 6000) {
-                $baseCore = 50; $baseMem = 250; $ecoBoost = 25
+                $baseCore = 50; $baseMem = 200; $ecoBoost = 25
             } elseif ($Hw.VramMB -ge 3500) {
-                $baseCore = 45; $baseMem = 200; $ecoBoost = 25
+                $baseCore = 40; $baseMem = 150; $ecoBoost = 25
             } else {
-                $baseCore = 35; $baseMem = 150; $ecoBoost = 20
+                $baseCore = 30; $baseMem = 125; $ecoBoost = 20
             }
         } else {
             $baseCore = 35; $baseMem = 150; $ecoBoost = 15
@@ -470,12 +495,12 @@ function Get-GpuTuningPlan {
     $leveCore  = $baseCore; $leveMem = $baseMem
     $medioCore = (& $round5 ($baseCore * $medCoreMult))
     $medioMem  = (& $round5 ($baseMem  * $medMemMult))
-    $altoCore  = (& $round5 ($baseCore * $highCoreMult))
-    $altoMem   = (& $round5 ($baseMem  * $highMemMult))
+    $boostCore = (& $round5 ($baseCore * $highCoreMult))
+    $boostMem  = (& $round5 ($baseMem  * $highMemMult))
 
-    $safeHighPL = if ($Hw.IsLaptop) { 100 } else { $Hw.PerfPowerPct }
-    $safeMedPL  = if ($Hw.IsLaptop) { 100 } else { [math]::Min($Hw.PerfPowerPct, 104) }
-    $thermBase  = if ($Hw.IsLaptop) { 80 } else { 83 }
+    $safeBoostPL = if ($Hw.IsLaptop) { 100 } else { $Hw.PerfPowerPct }
+    $safeMedPL   = if ($Hw.IsLaptop) { 100 } else { [math]::Min($Hw.PerfPowerPct, 104) }
+    $thermBase   = if ($Hw.IsLaptop) { 80 } else { 83 }
 
     return [PSCustomObject]@{
         IsDedicated = $isDedicated
@@ -484,18 +509,18 @@ function Get-GpuTuningPlan {
         Tiers       = @{
             Leve = [PSCustomObject]@{
                 Slot = $SlotLeve; Name = 'Leve'; CoreMHz = $leveCore; MemMHz = $leveMem
-                PowerLimit = 100; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 55
-                VoltFrac = if ($Hw.IsLaptop) { 0.80 } else { 0.85 }; PeakExtra = if ($Hw.IsLaptop) { 0 } else { 10 }
+                PowerLimit = 100; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 52
+                VoltFrac = if ($Hw.IsLaptop) { 0.78 } else { 0.82 }; PeakExtra = if ($Hw.IsLaptop) { 0 } else { 0 }
             }
             Medio = [PSCustomObject]@{
                 Slot = $SlotMedio; Name = 'Medio'; CoreMHz = $medioCore; MemMHz = $medioMem
-                PowerLimit = $safeMedPL; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 65
-                VoltFrac = if ($Hw.IsLaptop) { 0.88 } else { 0.93 }; PeakExtra = if ($Hw.IsLaptop) { 15 } else { 30 }
+                PowerLimit = $safeMedPL; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 62
+                VoltFrac = if ($Hw.IsLaptop) { 0.85 } else { 0.89 }; PeakExtra = if ($Hw.IsLaptop) { 10 } else { 20 }
             }
-            Alto = [PSCustomObject]@{
-                Slot = $SlotAlto; Name = 'Alto'; CoreMHz = $altoCore; MemMHz = $altoMem
-                PowerLimit = $safeHighPL; ThermalLimit = ($thermBase + 2); FanMode = 0; FanSpeed = 75
-                VoltFrac = if ($Hw.IsLaptop) { 0.93 } else { 0.97 }; PeakExtra = if ($Hw.IsLaptop) { 25 } else { 50 }
+            Boost = [PSCustomObject]@{
+                Slot = $SlotBoost; Name = 'Boost'; CoreMHz = $boostCore; MemMHz = $boostMem
+                PowerLimit = $safeBoostPL; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 72
+                VoltFrac = if ($Hw.IsLaptop) { 0.90 } else { 0.92 }; PeakExtra = if ($Hw.IsLaptop) { 20 } else { 35 }
             }
         }
     }
@@ -769,7 +794,7 @@ function Ensure-AfterburnerProfiles {
         return $false
     }
 
-    $markerFile = Join-Path $ab.ProfilesDir ".modojogo_profiles_v4"
+    $markerFile = Join-Path $ab.ProfilesDir ".modojogo_profiles_v5"
     if ((Test-Path $markerFile) -and (-not $ForceOverwrite)) {
         return $true
     }
@@ -796,8 +821,9 @@ function Ensure-AfterburnerProfiles {
 
         $defaultsCurveHex = Get-IniSectionValue -FilePath $cfg.FullName -SectionName "Defaults" -KeyName "VFCurve"
         $summaryParts = [System.Collections.Generic.List[string]]::new()
+        $safeStartupLines = $null
 
-        foreach ($tierKey in @('Leve','Medio','Alto')) {
+        foreach ($tierKey in @('Leve','Medio','Boost')) {
             $t = $plan.Tiers[$tierKey]
             $curve = $null
             if ($defaultsCurveHex -and $plan.IsDedicated) {
@@ -816,8 +842,13 @@ function Ensure-AfterburnerProfiles {
             $lines.Add("FanSpeed=$($t.FanSpeed)")
 
             Set-IniSection -FilePath $cfg.FullName -SectionName "Profile$($t.Slot)" -KeyValueLines $lines.ToArray()
+            if ($tierKey -eq 'Leve') { $safeStartupLines = $lines.ToArray() }
             $desc = if ($curve) { "$($t.Name)[S$($t.Slot)]: $($curve.PlateauMHz)MHz@$($curve.CapMv)mV (+$($t.CoreMHz)/+$($t.MemMHz))" } else { "$($t.Name)[S$($t.Slot)]: PL=$($t.PowerLimit)% (+$($t.CoreMHz)/+$($t.MemMHz))" }
             $summaryParts.Add($desc)
+        }
+
+        if ($safeStartupLines) {
+            Set-IniSection -FilePath $cfg.FullName -SectionName "Startup" -KeyValueLines $safeStartupLines
         }
 
         $ecoCurve = $null
@@ -842,14 +873,14 @@ function Ensure-AfterburnerProfiles {
         Write-Log ("Perfis GPU gravados ($($cfg.Name)): " + ($summaryParts -join ' | ')) "Green"
     }
 
-    foreach ($slot in @($SlotLeve, $SlotMedio, $SlotAlto, $EcoSlot)) {
+    foreach ($slot in @($SlotLeve, $SlotMedio, $SlotBoost, $EcoSlot)) {
         $slotFile = Join-Path $ab.ProfilesDir "Profile$slot.cfg"
         if (-not (Test-Path $slotFile)) {
             Set-Content -Path $slotFile -Value "[Settings]`r`nProfileContents=1" -Encoding Default -NoNewline
         }
     }
 
-    Set-Content -Path $markerFile -Value ("Calibrado v4 (Leve/Medio/Alto/Eco + FSR/SDXL) em " + (Get-Date -Format s) + " para " + $Hw.GpuName) -Encoding UTF8
+    Set-Content -Path $markerFile -Value ("Calibrado v5 (Leve/Medio/Boost/Eco + FSR/SDXL + ASPM Off) em " + (Get-Date -Format s) + " para " + $Hw.GpuName) -Encoding UTF8
 
     if ($wasRunning) {
         Start-Process -FilePath $ab.ExePath -ArgumentList "/s" -WindowStyle Hidden
@@ -1558,8 +1589,8 @@ function Set-BackgroundAppsThrottled {
 
 function Apply-PerformanceMode {
     param(
-        [ValidateSet('Leve','Medio','Alto')]
-        [string]$Tier = 'Leve',
+        [ValidateSet('Leve','Medio','Boost','Alto')]
+        [string]$Tier = 'Boost',
         $Hw,
         $Schemes,
         [ValidateSet('Jogos','Streaming')]
@@ -1567,8 +1598,10 @@ function Apply-PerformanceMode {
         [switch]$Interactive,
         [switch]$Silent
     )
+    if ($Tier -eq 'Alto') { $Tier = 'Boost' }
     if (-not $Hw) { $Hw = Get-HardwareProfile }
     if (-not $Schemes) { $Schemes = Get-PowerSchemeIds }
+    Ensure-SafeDesktopPowerSettings -Hw $Hw
     if ($Schemes.PerfGuid) { powercfg /setactive $Schemes.PerfGuid | Out-Null }
 
     Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
@@ -1585,6 +1618,7 @@ function Apply-EconomyMode {
     param($Hw, $Schemes, [switch]$Silent)
     if (-not $Hw) { $Hw = Get-HardwareProfile }
     if (-not $Schemes) { $Schemes = Get-PowerSchemeIds }
+    Ensure-SafeDesktopPowerSettings -Hw $Hw
     if ($Schemes.EcoGuid) { powercfg /setactive $Schemes.EcoGuid | Out-Null }
 
     Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
@@ -1706,12 +1740,13 @@ function Get-ActiveWorkloadState {
 
     $tier = $null
     if ($needsPerf) {
-        if ($Config.AutoPerfTier -in @('Leve','Medio','Alto')) {
+        if ($Config.AutoPerfTier -eq 'Alto') { $tier = 'Boost' }
+        elseif ($Config.AutoPerfTier -in @('Leve','Medio','Boost')) {
             $tier = $Config.AutoPerfTier
         } else {
             $heavy3DCreate = ($createList | Where-Object { $_.ProcessName -in @('blender','afterfx','resolve','adobe premiere pro','premiere pro') }).Count -gt 0
             if (($hasGame -and $hasStream) -or $hasUltra -or $hasAi -or $heavy3DCreate) {
-                $tier = 'Alto'
+                $tier = 'Boost'
             } elseif ($hasGame -or $hasStream -or $hasCreate) {
                 $tier = 'Medio'
             } else {
@@ -1836,7 +1871,7 @@ function Install-AutoStartTask {
     Start-ScheduledTask -TaskName $TaskName
 
     Write-Log "Automacao instalada e iniciada em segundo plano (Tarefa Agendada: $TaskName)." "Green"
-    Write-Log "Jogos, OBS, edicao e apps pesados alternam automaticamente entre Leve/Medio/Alto e Economia." "Gray"
+    Write-Log "Jogos, OBS, edicao e apps pesados alternam automaticamente entre Leve/Medio/Boost e Economia." "Gray"
 }
 
 function Restore-ModojogoBackupsInDir {
@@ -1860,7 +1895,7 @@ function Uninstall-AutoStartTask {
 
     $ab = Find-Afterburner
     if ($ab -and (Test-Path $ab.ProfilesDir)) {
-        foreach ($mk in @(".modojogo_profiles_v1", ".modojogo_profiles_v2", ".modojogo_profiles_v3", ".modojogo_profiles_v4")) {
+        foreach ($mk in @(".modojogo_profiles_v1", ".modojogo_profiles_v2", ".modojogo_profiles_v3", ".modojogo_profiles_v4", ".modojogo_profiles_v5")) {
             $markerFile = Join-Path $ab.ProfilesDir $mk
             if (Test-Path $markerFile) { Remove-Item $markerFile -Force }
         }
@@ -1904,7 +1939,7 @@ function Show-Diagnostics {
     Write-Host (" Upscaler : {0}" -f $(if ($Hw.NoTensorCores) { "Sem Tensor Cores -> AMD FSR 1/2/3 + OptiScaler/Magpie recomendado" } else { "Tensor Cores + AMD FSR suportados" }))
     Write-Host (" Tools UP : Lossless={0} | Magpie={1} | OptiScaler={2}" -f $(if ($ups.LosslessScaling) {"OK"} else {"Nao"}), $(if ($ups.Magpie) {"OK"} else {"Nao"}), $(if ($ups.OptiScaler) {"OK"} else {"Nao"}))
     Write-Host (" SDXL Env : CUDA_MODULE_LOADING={0} | PYTORCH_CUDA_ALLOC_CONF={1}" -f $(if ($cudaLaz) {$cudaLaz} else {"(padrao)"}), $(if ($ptAlloc) {$ptAlloc} else {"(padrao)"}))
-    foreach ($tk in @('Leve','Medio','Alto')) {
+    foreach ($tk in @('Leve','Medio','Boost')) {
         $t = $plan.Tiers[$tk]
         Write-Host (" Perfil   : {0,-6} (Slot {1}) -> PL {2}% | Undervolt + OC (+{3} Core / +{4} Mem MHz)" -f $t.Name, $t.Slot, $t.PowerLimit, $t.CoreMHz, $t.MemMHz)
     }
@@ -1922,26 +1957,150 @@ function Show-Diagnostics {
     Write-Host ""
 }
 
+function Repair-WindowsSystemErrors {
+    param($Hw)
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    if (-not (Test-IsAdmin)) {
+        Write-Log "Execute como Administrador para reparar erros de registro, servicos e drivers do Windows." "Red"
+        return
+    }
+    Write-Log "Iniciando verificacao e reparo de erros do Windows (ASPM, drivers orfaos, WMI, HVCI, DISM/SFC)..." "Cyan"
+    Ensure-SafeDesktopPowerSettings -Hw $Hw
+
+    # 1. Limpar Crash Dumps acumulados
+    $freed = 0L
+    foreach ($dp in @("$env:SystemRoot\LiveKernelReports", "$env:SystemRoot\Minidump", "$env:LOCALAPPDATA\CrashDumps")) {
+        if (Test-Path $dp) {
+            Get-ChildItem $dp -Filter '*.dmp' -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+                $freed += $_.Length
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($freed -gt 0) { Write-Log ("Dumps limpos: {0:N1} MB liberados." -f ($freed / 1MB)) "Gray" }
+
+    # 2. Remover servicos de driver orfaos (ex. arquivo .sys inexistente em unidade existente)
+    Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\*' -ErrorAction SilentlyContinue | ForEach-Object {
+        $ip = $_.ImagePath
+        $sn = $_.PSChildName
+        if ($ip -and ($_.Type -eq 1 -or $_.Type -eq 2) -and ($_.Start -in @(0,1,2,3))) {
+            $sysP = $null
+            if ($ip -match '^(?:\\\?\?\\)?([A-Za-z]:\\.+?\.sys)$') { $sysP = $matches[1] }
+            elseif ($ip -match '^(system32\\drivers\\.+\.sys)$') { $sysP = Join-Path $env:SystemRoot $matches[1] }
+            if ($sysP -and ($sysP -match '^([A-Za-z]:)\\') -and (Test-Path ($matches[1] + '\')) -and (-not (Test-Path $sysP))) {
+                sc.exe stop $sn 2>$null | Out-Null
+                sc.exe delete $sn 2>$null | Out-Null
+                Write-Log ("Driver orfao removido (SCM 7000): $sn ($sysP)" ) "Yellow"
+            }
+        }
+    }
+
+    # 3. Corrigir Autorecover MOFs quebrados e repositorio WMI
+    try {
+        $cimom = 'HKLM:\SOFTWARE\Microsoft\Wbem\CIMOM'
+        $mofs = (Get-ItemProperty $cimom -ErrorAction SilentlyContinue).'Autorecover MOFs'
+        if ($mofs) {
+            $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $clean = [System.Collections.Generic.List[string]]::new()
+            $chg = $false
+            foreach ($m in $mofs) {
+                if ([string]::IsNullOrWhiteSpace($m)) { $chg = $true; continue }
+                $exp = [Environment]::ExpandEnvironmentVariables($m)
+                if ((Test-Path $exp) -and $seen.Add($m)) { $clean.Add($m) } else { $chg = $true }
+            }
+            $defMof = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform" -Filter 'ProtectionManagement.mof' -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($defMof -and $seen.Add($defMof.FullName)) { $clean.Add($defMof.FullName); $chg = $true }
+            if ($chg) {
+                Set-ItemProperty -Path $cimom -Name 'Autorecover MOFs' -Value ([string[]]$clean.ToArray()) -Type MultiString -Force
+                if ($defMof) { mofcomp $defMof.FullName 2>$null | Out-Null }
+                Write-Log "Lista Autorecover MOFs do WMI corrigida." "Gray"
+            }
+        }
+        $wv = winmgmt /verifyrepository 2>&1
+        if ($LASTEXITCODE -ne 0 -or ($wv -join ' ') -match 'inconsist|not consistent') {
+            winmgmt /salvagerepository 2>$null | Out-Null
+            Write-Log "Repositorio WMI reparado automaticamente." "Yellow"
+        }
+    } catch {}
+
+    # 4. Resolver conflito HVCI (Kernel-Boot 124) se registrado no log recente
+    try {
+        $kb124 = Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Boot'; Id=124; StartTime=(Get-Date).AddDays(-7) } -MaxEvents 1 -ErrorAction SilentlyContinue
+        if ($kb124) {
+            $hvci = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity'
+            if (Test-Path $hvci) {
+                Set-ItemProperty -Path $hvci -Name 'Enabled' -Value 0 -Type DWord -Force
+                Set-ItemProperty -Path $hvci -Name 'WasEnabledBy' -Value 0 -Type DWord -Force
+            }
+            $dg = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard'
+            if (Test-Path $dg) { Set-ItemProperty -Path $dg -Name 'EnableVirtualizationBasedSecurity' -Value 0 -Type DWord -Force }
+            Write-Log "Conflito HVCI/VBS (Kernel-Boot 124) desativado." "Yellow"
+        }
+    } catch {}
+
+    # 5. Instalar drivers PCI/Chipset oficiais pendentes via Windows Update caso haja falha de instalacao
+    try {
+        $badPci = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Problem -eq 'CM_PROB_FAILED_INSTALL' -and $_.InstanceId -match '^PCI\\' }
+        if ($badPci) {
+            $sess = New-Object -ComObject Microsoft.Update.Session
+            $srch = $sess.CreateUpdateSearcher()
+            $res  = $srch.Search("IsInstalled=0 and Type='Driver'")
+            $coll = New-Object -ComObject Microsoft.Update.UpdateColl
+            foreach ($u in $res.Updates) {
+                if ((($u.DriverHardwareID -join ';').ToLower()) -match 'pci\\ven_') { [void]$coll.Add($u) }
+            }
+            if ($coll.Count -gt 0) {
+                $dl = $sess.CreateUpdateDownloader(); $dl.Updates = $coll; [void]$dl.Download()
+                $in = $sess.CreateUpdateInstaller(); $in.Updates = $coll; [void]$in.Install()
+                Write-Log ("Drivers oficiais de Chipset/PCI instalados via Windows Update: " + $coll.Count) "Green"
+            }
+        }
+    } catch {}
+
+    # 6. Agendar reparo offline seguro (sem travamento online) se houver Ntfs 55 recente
+    try {
+        $nt55 = Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Ntfs'; Id=55; StartTime=(Get-Date).AddDays(-7) } -MaxEvents 10 -ErrorAction SilentlyContinue
+        if ($nt55) {
+            $vols = $nt55 | ForEach-Object { if ($_.Properties.Count -gt 0) { ($_.Properties[0].Value + '').Trim() } } | Where-Object { $_ -match '^[A-Za-z]:$' } | Select-Object -Unique
+            foreach ($v in $vols) {
+                fsutil dirty set $v | Out-Null
+                Write-Log ("Reparo NTFS offline seguro agendado para o proximo boot no volume $v.") "Yellow"
+            }
+        }
+    } catch {}
+
+    # 7. DISM + SFC no sistema
+    $dismChk = DISM.exe /Online /Cleanup-Image /CheckHealth 2>&1
+    if (($dismChk -join ' ') -match 'repar|repair|corrupt') {
+        DISM.exe /Online /Cleanup-Image /RestoreHealth
+    }
+    sfc /scannow
+    Write-Log "Verificacao e reparo de erros do Windows concluidos." "Green"
+}
+
 # === ROTEAMENTO DE EXECUCAO ===
 $argNorm = ($env:MODOJOGO_ARGS + "").Trim().ToLower()
 switch ($argNorm) {
     "-auto"         { Start-GameWatcher -Silent; exit 0 }
     "-monitor"      { Start-GameWatcher; exit 0 }
     "-leve"         { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Leve'  -Hw $Hw -Schemes $S; exit 0 }
-    "-desempenho"   { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Leve'  -Hw $Hw -Schemes $S; exit 0 }
+    "-desempenho"   { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $S; exit 0 }
     "-medio"        { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Medio' -Hw $Hw -Schemes $S; exit 0 }
-    "-alto"         { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Alto'  -Hw $Hw -Schemes $S; exit 0 }
+    "-boost"        { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $S; exit 0 }
+    "-alto"         { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $S; exit 0 }
     "-economia"     { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-EconomyMode -Hw $Hw -Schemes $S; exit 0 }
     "-presetjogos"  { $Hw = Get-HardwareProfile; Apply-AudioVisualPreset -PresetMode 'Jogos'     -Hw $Hw -FullCalibrate; exit 0 }
     "-presetstream" { $Hw = Get-HardwareProfile; Apply-AudioVisualPreset -PresetMode 'Streaming' -Hw $Hw -FullCalibrate; exit 0 }
     "-fsr"          { $Hw = Get-HardwareProfile; Optimize-AmdFsrAndUpscaling -Hw $Hw; exit 0 }
     "-instalarfsr"  { $Hw = Get-HardwareProfile; Optimize-AmdFsrAndUpscaling -Hw $Hw; Install-FsrToolchain -Hw $Hw; exit 0 }
     "-sdxl"         { $Hw = Get-HardwareProfile; Optimize-SdxlAndAiEnvironment -Hw $Hw; exit 0 }
+    "-reparar"      { $Hw = Get-HardwareProfile; Repair-WindowsSystemErrors -Hw $Hw; exit 0 }
     "-calibrar"     {
         $Hw = Get-HardwareProfile
+        $S  = Get-PowerSchemeIds
         Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
-        Apply-AudioVisualPreset -PresetMode 'Jogos' -Hw $Hw -FullCalibrate
         Optimize-OtherPcPrograms -Hw $Hw
+        Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $S -AudioVisualPreset 'Jogos'
         exit 0
     }
     "-corrigircor"  { Ensure-DisplayContrastAndColor; exit 0 }
@@ -1953,21 +2112,21 @@ $Plan    = Get-GpuTuningPlan -Hw $Hw
 
 while ($true) {
     $cfgCur = Get-ModoJogoConfig
-    $tL = $Plan.Tiers['Leve']; $tM = $Plan.Tiers['Medio']; $tA = $Plan.Tiers['Alto']
+    $tL = $Plan.Tiers['Leve']; $tM = $Plan.Tiers['Medio']; $tB = $Plan.Tiers['Boost']
     Clear-Host
     Write-Host "================================================================================" -ForegroundColor Cyan
     Write-Host "  MODO JOGO AUTOMATICO - 4 PERFIS UV/OC + OBS + REALTEK + AMD FSR + SDXL" -ForegroundColor Cyan
     Write-Host "================================================================================" -ForegroundColor Cyan
     Write-Host (" Hardware : {0} | {1} GB RAM | {2} ({3} MB | {4}x{5}@{6}Hz)" -f $Hw.CpuName, $Hw.RamTotalGB, $Hw.GpuName, $Hw.VramMB, $Hw.DisplayW, $Hw.DisplayH, $Hw.DisplayHz) -ForegroundColor Gray
-    Write-Host (" S$SlotLeve Leve  : +{0}/+{1} MHz (PL {2}%) | S$SlotMedio Medio: +{3}/+{4} (PL {5}%) | S$SlotAlto Alto: +{6}/+{7} (PL {8}%)" -f $tL.CoreMHz, $tL.MemMHz, $tL.PowerLimit, $tM.CoreMHz, $tM.MemMHz, $tM.PowerLimit, $tA.CoreMHz, $tA.MemMHz, $tA.PowerLimit) -ForegroundColor Gray
+    Write-Host (" S$SlotLeve Leve  : +{0}/+{1} MHz (PL {2}%) | S$SlotMedio Medio: +{3}/+{4} (PL {5}%) | S$SlotBoost Boost: +{6}/+{7} (PL {8}%)" -f $tL.CoreMHz, $tL.MemMHz, $tL.PowerLimit, $tM.CoreMHz, $tM.MemMHz, $tM.PowerLimit, $tB.CoreMHz, $tB.MemMHz, $tB.PowerLimit) -ForegroundColor Gray
     Write-Host (" S$EcoSlot Eco   : +{0} base MHz (PL {1}%) | Auto: {2} | Preset: {3} | FSR: {4}" -f $Plan.EcoBoostMHz, $Hw.EcoPowerPct, $cfgCur.AutoPerfTier, $cfgCur.ActiveAVPreset, $(if ($Hw.NoTensorCores) {"FSR+OptiScaler"} else {"DLSS+FSR"})) -ForegroundColor Gray
     Write-Host "--------------------------------------------------------------------------------"
-    Write-Host " [1] Calibrar Tudo (4 Perfis + OBS + Realtek + FSR/Jogos + SDXL) & Ativar LEVE"
+    Write-Host " [1] Calibrar Tudo (4 Perfis + OBS + Realtek + FSR/SDXL + Fix ASPM) & Ativar BOOST"
     Write-Host " [2] Ativar DESEMPENHO MEDIO     (Undervolt + Overclock Medio  | Slot $SlotMedio)"
-    Write-Host " [3] Ativar DESEMPENHO ALTO      (Undervolt + Overclock Alto   | Slot $SlotAlto)"
+    Write-Host " [3] Ativar DESEMPENHO BOOST     (Undervolt + Overclock Boost  | Slot $SlotBoost)"
     Write-Host " [4] Ativar MODO ECONOMIA        (Undervolt Eficiencia + Eco   | Slot $EcoSlot)"
     Write-Host " [5] Predefinicoes Audio/Imagem  (Jogos vs Streaming -> Realtek, OBS, Tela, Apps)"
-    Write-Host " [6] Configurar Nivel Automatico (Auto Inteligente vs Fixo Leve/Medio/Alto)"
+    Write-Host " [6] Configurar Nivel Automatico (Auto Inteligente vs Fixo Leve/Medio/Boost)"
     Write-Host " [7] Iniciar Monitor Automatico nesta janela (jogos, OBS, IA/SDXL e apps)"
     Write-Host " [8] Instalar Automacao no Windows (roda oculto ao ligar o PC)"
     Write-Host " [9] Desinstalar Automacao e restaurar backups originais"
@@ -1975,6 +2134,7 @@ while ($true) {
     Write-Host " [11] Exibir Diagnostico Completo (Pecas, 4 Perfis, Audio, OBS, FSR e SDXL)"
     Write-Host " [12] AMD FSR Universal + Jogos  (Calibrar CS2/OW + Instalar Magpie & OptiScaler)"
     Write-Host " [13] Otimizacoes SDXL & IA      (CUDA Lazy, PyTorch Low-VRAM e Launchers WebUI)"
+    Write-Host " [14] Reparar Erros do Windows   (ASPM, Drivers, WMI, HVCI 124, DISM/SFC, Boot)"
     Write-Host " [0] Sair"
     Write-Host ""
     $op = Read-Host "Escolha uma opcao"
@@ -1984,7 +2144,7 @@ while ($true) {
             Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
             Optimize-OtherPcPrograms -Hw $Hw
             Apply-AudioVisualPreset -PresetMode 'Jogos' -Hw $Hw -FullCalibrate
-            Apply-PerformanceMode -Tier 'Leve' -Hw $Hw -Schemes $Schemes -AudioVisualPreset 'Jogos' -Interactive
+            Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $Schemes -AudioVisualPreset 'Jogos' -Interactive
             Pause
         }
         "2" {
@@ -1998,7 +2158,7 @@ while ($true) {
             Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
             $av = Read-Host "Predefinicao [J] Jogos (padrao) ou [S] Streaming/Edicao"
             $avMode = if ($av -match '^[sS]') { 'Streaming' } else { 'Jogos' }
-            Apply-PerformanceMode -Tier 'Alto' -Hw $Hw -Schemes $Schemes -AudioVisualPreset $avMode -Interactive
+            Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $Schemes -AudioVisualPreset $avMode -Interactive
             Pause
         }
         "4" {
@@ -2023,13 +2183,14 @@ while ($true) {
             Pause
         }
         "6" {
-            Write-Host "`n [A] Auto Inteligente (Leve=Apps pesados | Medio=Jogos/OBS | Alto=AAA/Live+IA/SDXL)" -ForegroundColor Cyan
-            Write-Host " [L] Fixar automatico em LEVE  |  [M] Fixar em MEDIO  |  [T] Fixar em ALTO" -ForegroundColor Cyan
-            $tChoice = (Read-Host "Escolha [A/L/M/T]").Trim().ToUpper()
+            Write-Host "`n [A] Auto Inteligente (Leve=Apps pesados | Medio=Jogos/OBS | Boost=AAA/Live+IA/SDXL)" -ForegroundColor Cyan
+            Write-Host " [L] Fixar automatico em LEVE  |  [M] Fixar em MEDIO  |  [B] Fixar em BOOST" -ForegroundColor Cyan
+            $tChoice = (Read-Host "Escolha [A/L/M/B]").Trim().ToUpper()
             $newTier = switch ($tChoice) {
                 'L' { 'Leve' }
                 'M' { 'Medio' }
-                'T' { 'Alto' }
+                'B' { 'Boost' }
+                'T' { 'Boost' }
                 default { 'Auto' }
             }
             [void](Save-ModoJogoConfig -AutoPerfTier $newTier)
@@ -2069,6 +2230,10 @@ while ($true) {
         }
         "13" {
             Optimize-SdxlAndAiEnvironment -Hw $Hw
+            Pause
+        }
+        "14" {
+            Repair-WindowsSystemErrors -Hw $Hw
             Pause
         }
         "0" { exit 0 }
