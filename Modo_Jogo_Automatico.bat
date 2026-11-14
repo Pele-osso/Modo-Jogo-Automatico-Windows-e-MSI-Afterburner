@@ -30,18 +30,24 @@ $ErrorActionPreference = 'SilentlyContinue'
 # ============================================================================
 # CONFIGURACOES OPCIONAIS DO USUARIO (0 = Automatico e 100% seguro via hardware)
 # ============================================================================
-$PerfSlot          = 4       # Slot do MSI Afterburner reservado para DESEMPENHO (1 a 5)
-$EcoSlot           = 5       # Slot do MSI Afterburner reservado para ECONOMIA (1 a 5)
-$PerfCoreOffsetMHz = 0       # 0 = automatico por hardware (leve overclock + undervolt); ou valor em MHz (ex: 50)
-$PerfMemOffsetMHz  = 0       # 0 = automatico por hardware (ex: +150/+200 MHz VRAM em GPU dedicada)
-$AutoFixContrast   = $true   # $true corrige automaticamente filtro branco/contraste baixo (RGB Full 0-255, gama e DDC)
-$PollIntervalSec   = 4       # Intervalo de verificacao do monitor automatico (segundos)
-$EcoGraceSec       = 12      # Tempo apos fechar jogos antes de voltar para Economia (segundos)
-$CloseBrowsersAuto = $false  # $true fecha navegadores ao abrir jogo em modo automatico; $false apenas reduz prioridade CPU
+$SlotBackupOriginal = 1      # Slot preservado intacto (referencia do usuario)
+$SlotLeve           = 2      # Slot MSI Afterburner: DESEMPENHO LEVE (Undervolt + Leve OC)
+$SlotMedio          = 3      # Slot MSI Afterburner: DESEMPENHO MEDIO (Undervolt + Medio OC)
+$SlotAlto           = 4      # Slot MSI Afterburner: DESEMPENHO ALTO (Undervolt + Alto OC Seguro)
+$EcoSlot            = 5      # Slot MSI Afterburner: ECONOMIA (Undervolt Eficiencia)
+$DefaultAutoTier    = 'Auto' # 'Auto' (inteligente por programa), 'Leve', 'Medio' ou 'Alto'
+$PerfCoreOffsetMHz  = 0      # 0 = automatico por hardware (tier Leve); >0 sobrescreve base Core
+$PerfMemOffsetMHz   = 0      # 0 = automatico por hardware (tier Leve); >0 sobrescreve base VRAM
+$AutoFixContrast    = $true  # $true corrige automaticamente filtro branco/contraste (RGB Full, Gama, DDC)
+$AutoOptimizeApps   = $true  # $true otimiza OBS, Realtek/Audio, Discord, Wallpaper Engine e apps pesados
+$PollIntervalSec    = 4      # Intervalo de verificacao do monitor automatico (segundos)
+$EcoGraceSec        = 12     # Tempo apos fechar jogos/programas pesados antes de ir para Economia
+$CloseBrowsersAuto  = $false # $true fecha navegadores em modo automatico; $false apenas reduz prioridade
 # ============================================================================
 
 $TaskName    = "ModoJogoAutomatico_MSIAfterburner"
 $InstallDir  = Join-Path $env:ProgramData "ModoJogoAutomatico"
+$ConfigFile  = Join-Path $InstallDir "config.json"
 $LogFile     = Join-Path $env:TEMP "ModoJogoAutomatico.log"
 
 $KnownGameExes = @(
@@ -52,15 +58,79 @@ $KnownGameExes = @(
     'helldivers2','once_human','acs','metro','eurotrucks2','farcry3','fc3_d3d11',
     'cod','bg3','bg3_dx11','starfield','hogwartslegacy','palworld','rustclient',
     'dayz_x64','hl2','rocketleague','marvelrivals','deadlock','apex','destiny2',
-    'pubg','warframe.x64','re4','re5dx9','isaac-ng','repo','hades','oriwotw'
+    'pubg','warframe.x64','re4','re5dx9','isaac-ng','repo','hades','oriwotw',
+    'daysgone','assettocorsa','drift','readyornot-win64-shipping'
 )
+
+$UltraHeavyGameExes = @(
+    'cyberpunk2077','rdr2','eldenring','starfield','hogwartslegacy','bf2042',
+    'helldivers2','palworld','daysgone','readyornot-win64-shipping','forzahorizon5',
+    'flightsimulator','alanwake2','witcher3','gta5'
+)
+
+$StreamingExes = @(
+    'obs64','obs32','streamlabs obs','xsplit.core','twitchstudio','vmix64','nvidia broadcast'
+)
+
+$CreationWorkExes = @(
+    'adobe premiere pro','premiere pro','resolve','vegas210','vegas200','vegas190','vegas180',
+    'afterfx','blender','capcut','audacity','fl64','fl','reaper','handbrake','shotcut',
+    'kdenlive','photoshop','gimp-2.10','devenv','rider64'
+)
+
+$AiWorkloadExes = @(
+    'comfyui','ollama','ollama app','llama-server','koboldcpp','python','pythonw'
+)
+
+$UpscalerExes = @(
+    'losslessscaling','magpie'
+)
+
+$AudioConsoleExes = @(
+    'realtekaudiocontrol','rtkngui64','ravcpl64','voicemeeter','voicemeeterpro','voicemeeter8',
+    'steelseriesgg','nvidia broadcast'
+)
+
+$BackgroundThrottleBrowsers = @('brave','chrome','msedge','firefox','opera')
+$BackgroundThrottleHelpers  = @('steamwebhelper','SearchIndexer','DSATray','epicwebhelper')
 
 $IgnoredExeNames = @(
     'unins000','uninstall','setup','installer','vc_redist','dxsetup','crashhandler',
     'crashreporter','updater','launcher','bootstrap','anticheat','easyanticheat_eos_setup',
     'battleye','vgc','vgtray','steam','steamwebhelper','steamservice','epicwebhelper',
-    'brave','chrome','msedge','firefox','opera','discord','obs64','rtss','msiafterburner'
+    'brave','chrome','msedge','firefox','opera','discord','obs64','obs32','rtss','msiafterburner',
+    'explorer','dwm','csrss','svchost','lsass','wininit','services','taskmgr','conhost',
+    'cmd','powershell','pwsh','applicationframehost','shellexperiencehost','searchhost',
+    'startmenuexperiencehost','textinputhost','runtimebroker','audiodg','rtkauduservice64',
+    'nvidia overlay','nvcontainer','code','antigravity','windowsterminal','losslessscaling','magpie'
 )
+
+function Get-ModoJogoConfig {
+    $cfg = [PSCustomObject]@{
+        AutoPerfTier   = $DefaultAutoTier
+        ActiveAVPreset = 'Jogos'
+    }
+    if (Test-Path $ConfigFile) {
+        try {
+            $raw = Get-Content -Path $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($raw.AutoPerfTier -in @('Auto','Leve','Medio','Alto')) { $cfg.AutoPerfTier = $raw.AutoPerfTier }
+            if ($raw.ActiveAVPreset -in @('Jogos','Streaming','Economia')) { $cfg.ActiveAVPreset = $raw.ActiveAVPreset }
+        } catch {}
+    }
+    return $cfg
+}
+
+function Save-ModoJogoConfig {
+    param([string]$AutoPerfTier, [string]$ActiveAVPreset)
+    $cur = Get-ModoJogoConfig
+    if ($AutoPerfTier -in @('Auto','Leve','Medio','Alto')) { $cur.AutoPerfTier = $AutoPerfTier }
+    if ($ActiveAVPreset -in @('Jogos','Streaming','Economia')) { $cur.ActiveAVPreset = $ActiveAVPreset }
+    try {
+        if (-not (Test-Path $InstallDir)) { New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null }
+        ($cur | ConvertTo-Json) | Set-Content -Path $ConfigFile -Encoding UTF8
+    } catch {}
+    return $cur
+}
 
 function Write-Log {
     param([string]$Msg, [string]$Color = "Cyan", [switch]$Silent)
@@ -139,22 +209,32 @@ function Get-HardwareProfile {
     }
 
     $disks = @(Get-PhysicalDisk | Select-Object FriendlyName, MediaType, @{N='GB';E={[math]::Round($_.Size/1GB,0)}})
+    $isPascalOrOlder = ($vendor -eq 'NVIDIA') -and ($gpuMain.Name -match 'GTX\s*(7\d\d|8\d\d|9\d\d|10\d\d|16\d\d)|GT\s*\d+|MX\d+|TITAN\s*(X|Xp|V)?\b')
+    $noTensorCores   = ($vendor -ne 'NVIDIA') -or $isPascalOrOlder
+    $dispW = if ($gpuMain.CurrentHorizontalResolution -gt 0) { [int]$gpuMain.CurrentHorizontalResolution } else { 1920 }
+    $dispH = if ($gpuMain.CurrentVerticalResolution -gt 0) { [int]$gpuMain.CurrentVerticalResolution } else { 1080 }
+    $dispHz = if ($gpuMain.CurrentRefreshRate -gt 0) { [int]$gpuMain.CurrentRefreshRate } else { 60 }
 
     return [PSCustomObject]@{
-        CpuName       = ($cpuObj.Name -replace '\s+', ' ').Trim()
-        CpuCores      = $cpuObj.NumberOfCores
-        CpuThreads    = $cpuObj.NumberOfLogicalProcessors
-        RamTotalGB    = $ramTotalGB
-        RamFreeGB     = $ramFreeGB
-        IsLaptop      = $isLaptop
-        GpuName       = $gpuMain.Name
-        GpuVendor     = $vendor
-        VramMB        = $vramMB
-        LowVram       = ($vramMB -gt 0 -and $vramMB -le 4200)
-        PerfPowerPct  = $nvMaxPct
-        EcoPowerPct   = $nvMinPct
-        GpuTempC      = $nvTempC
-        Disks         = $disks
+        CpuName         = ($cpuObj.Name -replace '\s+', ' ').Trim()
+        CpuCores        = $cpuObj.NumberOfCores
+        CpuThreads      = $cpuObj.NumberOfLogicalProcessors
+        RamTotalGB      = $ramTotalGB
+        RamFreeGB       = $ramFreeGB
+        IsLaptop        = $isLaptop
+        GpuName         = $gpuMain.Name
+        GpuVendor       = $vendor
+        VramMB          = $vramMB
+        LowVram         = ($vramMB -gt 0 -and $vramMB -le 4200)
+        IsPascalOrOlder = $isPascalOrOlder
+        NoTensorCores   = $noTensorCores
+        DisplayW        = $dispW
+        DisplayH        = $dispH
+        DisplayHz       = $dispHz
+        PerfPowerPct    = $nvMaxPct
+        EcoPowerPct     = $nvMinPct
+        GpuTempC        = $nvTempC
+        Disks           = $disks
     }
 }
 
@@ -262,36 +342,65 @@ function Get-IniSectionValue {
 function Get-GpuTuningPlan {
     param($Hw)
     $isDedicated = ($Hw.VramMB -ge 1500 -and $Hw.GpuVendor -in @('NVIDIA','AMD'))
-    $perfCore = 0; $perfMem = 0; $ecoBoost = 0; $perfPeakExtra = 0
-    $perfVoltFrac = 0.84; $ecoVoltFrac = 0.58
+    $baseCore = 0; $baseMem = 0; $ecoBoost = 0
+    $medCoreMult = 1.45; $medMemMult = 1.50
+    $highCoreMult = 1.88; $highMemMult = 2.12
 
     if ($isDedicated) {
         if ($Hw.IsLaptop) {
-            $perfCore = 25; $perfMem = 100; $ecoBoost = 15; $perfPeakExtra = 0; $perfVoltFrac = 0.80; $ecoVoltFrac = 0.56
+            $baseCore = 25; $baseMem = 100; $ecoBoost = 15
+            $medCoreMult = 1.50; $medMemMult = 1.50
+            $highCoreMult = 1.90; $highMemMult = 2.00
         } elseif ($Hw.GpuVendor -eq 'NVIDIA') {
             if ($Hw.VramMB -ge 6000) {
-                $perfCore = 60; $perfMem = 250; $ecoBoost = 25; $perfPeakExtra = 15; $perfVoltFrac = 0.84; $ecoVoltFrac = 0.58
+                $baseCore = 50; $baseMem = 250; $ecoBoost = 25
             } elseif ($Hw.VramMB -ge 3500) {
-                $perfCore = 50; $perfMem = 200; $ecoBoost = 25; $perfPeakExtra = 12; $perfVoltFrac = 0.84; $ecoVoltFrac = 0.58
+                $baseCore = 45; $baseMem = 200; $ecoBoost = 25
             } else {
-                $perfCore = 40; $perfMem = 150; $ecoBoost = 20; $perfPeakExtra = 10; $perfVoltFrac = 0.84; $ecoVoltFrac = 0.58
+                $baseCore = 35; $baseMem = 150; $ecoBoost = 20
             }
         } else {
-            $perfCore = 35; $perfMem = 150; $ecoBoost = 15; $perfPeakExtra = 0; $perfVoltFrac = 0.85; $ecoVoltFrac = 0.60
+            $baseCore = 35; $baseMem = 150; $ecoBoost = 15
+            $medCoreMult = 1.40; $medMemMult = 1.50
+            $highCoreMult = 1.80; $highMemMult = 2.00
         }
     }
 
-    if ($PerfCoreOffsetMHz -gt 0) { $perfCore = $PerfCoreOffsetMHz }
-    if ($PerfMemOffsetMHz  -gt 0) { $perfMem  = $PerfMemOffsetMHz }
+    if ($PerfCoreOffsetMHz -gt 0) { $baseCore = $PerfCoreOffsetMHz }
+    if ($PerfMemOffsetMHz  -gt 0) { $baseMem  = $PerfMemOffsetMHz }
+
+    $round5 = { param([double]$val) [int]([math]::Round($val / 5.0) * 5) }
+    $leveCore  = $baseCore; $leveMem = $baseMem
+    $medioCore = (& $round5 ($baseCore * $medCoreMult))
+    $medioMem  = (& $round5 ($baseMem  * $medMemMult))
+    $altoCore  = (& $round5 ($baseCore * $highCoreMult))
+    $altoMem   = (& $round5 ($baseMem  * $highMemMult))
+
+    $safeHighPL = if ($Hw.IsLaptop) { 100 } else { $Hw.PerfPowerPct }
+    $safeMedPL  = if ($Hw.IsLaptop) { 100 } else { [math]::Min($Hw.PerfPowerPct, 104) }
+    $thermBase  = if ($Hw.IsLaptop) { 80 } else { 83 }
 
     return [PSCustomObject]@{
-        IsDedicated   = $isDedicated
-        PerfCoreMHz   = $perfCore
-        PerfMemMHz    = $perfMem
-        PerfVoltFrac  = $perfVoltFrac
-        PerfPeakExtra = $perfPeakExtra
-        EcoBoostMHz   = $ecoBoost
-        EcoVoltFrac   = $ecoVoltFrac
+        IsDedicated = $isDedicated
+        EcoBoostMHz = $ecoBoost
+        EcoVoltFrac = if ($Hw.IsLaptop) { 0.56 } else { 0.58 }
+        Tiers       = @{
+            Leve = [PSCustomObject]@{
+                Slot = $SlotLeve; Name = 'Leve'; CoreMHz = $leveCore; MemMHz = $leveMem
+                PowerLimit = 100; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 55
+                VoltFrac = if ($Hw.IsLaptop) { 0.80 } else { 0.85 }; PeakExtra = if ($Hw.IsLaptop) { 0 } else { 10 }
+            }
+            Medio = [PSCustomObject]@{
+                Slot = $SlotMedio; Name = 'Medio'; CoreMHz = $medioCore; MemMHz = $medioMem
+                PowerLimit = $safeMedPL; ThermalLimit = $thermBase; FanMode = 0; FanSpeed = 65
+                VoltFrac = if ($Hw.IsLaptop) { 0.88 } else { 0.93 }; PeakExtra = if ($Hw.IsLaptop) { 15 } else { 30 }
+            }
+            Alto = [PSCustomObject]@{
+                Slot = $SlotAlto; Name = 'Alto'; CoreMHz = $altoCore; MemMHz = $altoMem
+                PowerLimit = $safeHighPL; ThermalLimit = ($thermBase + 2); FanMode = 0; FanSpeed = 75
+                VoltFrac = if ($Hw.IsLaptop) { 0.93 } else { 0.97 }; PeakExtra = if ($Hw.IsLaptop) { 25 } else { 50 }
+            }
+        }
     }
 }
 
@@ -346,12 +455,9 @@ function New-UndervoltOverclockVFCurve {
             if (($c[$i] + $CoreBoostMHz) -ge $goalClk) { $foundIdx = $i; break }
         }
         $minIdx = [math]::Max(10, [int][math]::Floor($peakIdx * 0.76))
-        $maxIdx = [math]::Max($minIdx, $peakIdx - 3)
-        if ($foundIdx -ge 0) {
-            $capIdx = [math]::Max($minIdx, [math]::Min($maxIdx, $foundIdx))
-        } else {
-            $capIdx = $maxIdx
-        }
+        $maxIdx = [math]::Max($minIdx, $peakIdx - 2)
+        $desiredIdx = if ($foundIdx -ge 0) { [math]::Max($capIdx, $foundIdx) } else { $capIdx }
+        $capIdx = [math]::Max($minIdx, [math]::Min($maxIdx, $desiredIdx))
     } else {
         $capIdx = [math]::Max(8, [math]::Min($peakIdx - 5, $capIdx))
     }
@@ -556,7 +662,7 @@ function Ensure-AfterburnerProfiles {
     param($Hw, [switch]$ForceOverwrite)
     $ab = Find-Afterburner
     if (-not $ab -or -not (Test-Path $ab.ProfilesDir)) {
-        Write-Log "MSI Afterburner nao encontrado; usando apenas gerenciamento de energia/processos do Windows." "Yellow"
+        Write-Log "MSI Afterburner nao encontrado; usando apenas gerenciamento de energia, audio e programas." "Yellow"
         return $false
     }
 
@@ -566,7 +672,7 @@ function Ensure-AfterburnerProfiles {
         return $false
     }
 
-    $markerFile = Join-Path $ab.ProfilesDir ".modojogo_profiles_v2"
+    $markerFile = Join-Path $ab.ProfilesDir ".modojogo_profiles_v4"
     if ((Test-Path $markerFile) -and (-not $ForceOverwrite)) {
         return $true
     }
@@ -582,37 +688,45 @@ function Ensure-AfterburnerProfiles {
         Start-Sleep -Milliseconds 1200
     }
 
-    $plan        = Get-GpuTuningPlan -Hw $Hw
-    $perfCoreKHz = $plan.PerfCoreMHz * 1000
-    $perfMemKHz  = $plan.PerfMemMHz * 1000
-    $ecoCoreKHz  = $plan.EcoBoostMHz * 1000
-    $perfTherm   = if ($Hw.IsLaptop) { 80 } else { 83 }
-    $ecoFanMode  = if ($Hw.IsLaptop) { 0 } else { 1 }
-    $ecoFanPct   = if ($Hw.IsLaptop) { 35 } else { 30 }
+    $plan       = Get-GpuTuningPlan -Hw $Hw
+    $ecoCoreKHz = $plan.EcoBoostMHz * 1000
+    $ecoFanMode = if ($Hw.IsLaptop) { 0 } else { 1 }
+    $ecoFanPct  = if ($Hw.IsLaptop) { 35 } else { 30 }
 
     foreach ($cfg in $gpuCfgs) {
         $bak = "$($cfg.FullName).bak_modojogo"
         if (-not (Test-Path $bak)) { Copy-Item $cfg.FullName $bak -Force }
 
         $defaultsCurveHex = Get-IniSectionValue -FilePath $cfg.FullName -SectionName "Defaults" -KeyName "VFCurve"
-        $perfCurve = $null; $ecoCurve = $null
-        if ($defaultsCurveHex -and $plan.IsDedicated) {
-            $perfCurve = New-UndervoltOverclockVFCurve -DefaultsHex $defaultsCurveHex -CoreBoostMHz $plan.PerfCoreMHz -VoltCapFrac $plan.PerfVoltFrac -PeakExtraMHz $plan.PerfPeakExtra -MatchPeakClk $true
-            $ecoCurve  = New-UndervoltOverclockVFCurve -DefaultsHex $defaultsCurveHex -CoreBoostMHz $plan.EcoBoostMHz -VoltCapFrac $plan.EcoVoltFrac  -PeakExtraMHz 0 -MatchPeakClk $false
+        $summaryParts = [System.Collections.Generic.List[string]]::new()
+
+        foreach ($tierKey in @('Leve','Medio','Alto')) {
+            $t = $plan.Tiers[$tierKey]
+            $curve = $null
+            if ($defaultsCurveHex -and $plan.IsDedicated) {
+                $curve = New-UndervoltOverclockVFCurve -DefaultsHex $defaultsCurveHex -CoreBoostMHz $t.CoreMHz -VoltCapFrac $t.VoltFrac -PeakExtraMHz $t.PeakExtra -MatchPeakClk $true
+            }
+            $lines = [System.Collections.Generic.List[string]]@(
+                "Format=2",
+                "PowerLimit=$($t.PowerLimit)",
+                "ThermalLimit=$($t.ThermalLimit)",
+                "ThermalPrioritize=0",
+                "CoreClkBoost=$($t.CoreMHz * 1000)",
+                "MemClkBoost=$($t.MemMHz * 1000)"
+            )
+            if ($curve) { $lines.Add("VFCurve=$($curve.Hex)") }
+            $lines.Add("FanMode=$($t.FanMode)")
+            $lines.Add("FanSpeed=$($t.FanSpeed)")
+
+            Set-IniSection -FilePath $cfg.FullName -SectionName "Profile$($t.Slot)" -KeyValueLines $lines.ToArray()
+            $desc = if ($curve) { "$($t.Name)[S$($t.Slot)]: $($curve.PlateauMHz)MHz@$($curve.CapMv)mV (+$($t.CoreMHz)/+$($t.MemMHz))" } else { "$($t.Name)[S$($t.Slot)]: PL=$($t.PowerLimit)% (+$($t.CoreMHz)/+$($t.MemMHz))" }
+            $summaryParts.Add($desc)
         }
 
-        $perfLines = [System.Collections.Generic.List[string]]@(
-            "Format=2",
-            "PowerLimit=$($Hw.PerfPowerPct)",
-            "ThermalLimit=$perfTherm",
-            "ThermalPrioritize=0",
-            "CoreClkBoost=$perfCoreKHz",
-            "MemClkBoost=$perfMemKHz"
-        )
-        if ($perfCurve) { $perfLines.Add("VFCurve=$($perfCurve.Hex)") }
-        $perfLines.Add("FanMode=0")
-        $perfLines.Add("FanSpeed=60")
-
+        $ecoCurve = $null
+        if ($defaultsCurveHex -and $plan.IsDedicated) {
+            $ecoCurve = New-UndervoltOverclockVFCurve -DefaultsHex $defaultsCurveHex -CoreBoostMHz $plan.EcoBoostMHz -VoltCapFrac $plan.EcoVoltFrac -PeakExtraMHz 0 -MatchPeakClk $false
+        }
         $ecoLines = [System.Collections.Generic.List[string]]@(
             "Format=2",
             "PowerLimit=$($Hw.EcoPowerPct)",
@@ -624,23 +738,21 @@ function Ensure-AfterburnerProfiles {
         if ($ecoCurve) { $ecoLines.Add("VFCurve=$($ecoCurve.Hex)") }
         $ecoLines.Add("FanMode=$ecoFanMode")
         $ecoLines.Add("FanSpeed=$ecoFanPct")
+        Set-IniSection -FilePath $cfg.FullName -SectionName "Profile$EcoSlot" -KeyValueLines $ecoLines.ToArray()
 
-        Set-IniSection -FilePath $cfg.FullName -SectionName "Profile$PerfSlot" -KeyValueLines $perfLines.ToArray()
-        Set-IniSection -FilePath $cfg.FullName -SectionName "Profile$EcoSlot"  -KeyValueLines $ecoLines.ToArray()
-
-        $perfMsg = if ($perfCurve) { "UV+OC $($perfCurve.PlateauMHz)MHz @ $($perfCurve.CapMv)mV (+$($plan.PerfCoreMHz) Core / +$($plan.PerfMemMHz) Mem)" } else { "PL=$($Hw.PerfPowerPct)% Core=+$($plan.PerfCoreMHz) Mem=+$($plan.PerfMemMHz)" }
-        $ecoMsg  = if ($ecoCurve)  { "UV $($ecoCurve.PlateauMHz)MHz @ $($ecoCurve.CapMv)mV (PL=$($Hw.EcoPowerPct)%)" } else { "PL=$($Hw.EcoPowerPct)%" }
-        Write-Log ("Perfis calibrados ($($cfg.Name)): Slot $PerfSlot [Desempenho: $perfMsg] | Slot $EcoSlot [Economia: $ecoMsg]") "Green"
+        $ecoDesc = if ($ecoCurve) { "Eco[S$EcoSlot]: $($ecoCurve.PlateauMHz)MHz@$($ecoCurve.CapMv)mV PL=$($Hw.EcoPowerPct)%" } else { "Eco[S$EcoSlot]: PL=$($Hw.EcoPowerPct)%" }
+        $summaryParts.Add($ecoDesc)
+        Write-Log ("Perfis GPU gravados ($($cfg.Name)): " + ($summaryParts -join ' | ')) "Green"
     }
 
-    foreach ($slot in @($PerfSlot, $EcoSlot)) {
+    foreach ($slot in @($SlotLeve, $SlotMedio, $SlotAlto, $EcoSlot)) {
         $slotFile = Join-Path $ab.ProfilesDir "Profile$slot.cfg"
         if (-not (Test-Path $slotFile)) {
             Set-Content -Path $slotFile -Value "[Settings]`r`nProfileContents=1" -Encoding Default -NoNewline
         }
     }
 
-    Set-Content -Path $markerFile -Value ("Calibrado v2 em " + (Get-Date -Format s) + " para " + $Hw.GpuName) -Encoding UTF8
+    Set-Content -Path $markerFile -Value ("Calibrado v4 (Leve/Medio/Alto/Eco + FSR/SDXL) em " + (Get-Date -Format s) + " para " + $Hw.GpuName) -Encoding UTF8
 
     if ($wasRunning) {
         Start-Process -FilePath $ab.ExePath -ArgumentList "/s" -WindowStyle Hidden
@@ -661,31 +773,684 @@ function Invoke-AfterburnerProfile {
     Start-Process -FilePath $ab.ExePath -ArgumentList "-Profile$Slot" -WindowStyle Hidden
 }
 
+function Optimize-RealtekAndAudio {
+    param(
+        [ValidateSet('Jogos','Streaming','Economia')]
+        [string]$PresetMode = 'Jogos',
+        [switch]$AllowRestartAudio,
+        [switch]$Silent
+    )
+    if (-not $AutoOptimizeApps) { return }
+
+    try {
+        # 1. Estereo real + Nunca baixar som de jogos/OBS durante comunicacao
+        $mmUser = 'HKCU:\Software\Microsoft\Multimedia\Audio'
+        New-Item -Path $mmUser -Force | Out-Null
+        Set-ItemProperty -Path $mmUser -Name 'AccessibilityMonoMixState' -Value 0 -Type DWord -Force
+        Set-ItemProperty -Path $mmUser -Name 'UserDuckingPreference' -Value 3 -Type DWord -Force
+    } catch {}
+
+    if (Test-IsAdmin) {
+        try {
+            # 2. MMCSS Audio & Pro Audio para menor latencia e zero estalos sob carga
+            $mmBase = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks'
+            foreach ($taskN in @('Audio','Pro Audio')) {
+                $tp = Join-Path $mmBase $taskN
+                if (Test-Path $tp) {
+                    $prioVal = if ($taskN -eq 'Pro Audio') { 2 } else { 6 }
+                    Set-ItemProperty -Path $tp -Name 'Scheduling Category' -Value 'High' -Type String -Force
+                    Set-ItemProperty -Path $tp -Name 'GPU Priority' -Value 8 -Type DWord -Force
+                    Set-ItemProperty -Path $tp -Name 'Priority' -Value $prioVal -Type DWord -Force
+                    if ($taskN -eq 'Pro Audio') {
+                        Set-ItemProperty -Path $tp -Name 'Background Only' -Value 'False' -Type String -Force
+                    }
+                }
+            }
+
+            # 3. Impedir suspensao D3 de economia agressiva no chip Realtek (evita pops/atrasos)
+            $audioClass = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e96c-e325-11ce-bfc1-08002be10318}'
+            Get-ChildItem $audioClass -ErrorAction SilentlyContinue | ForEach-Object {
+                $drvProps = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+                if ($drvProps.DriverDesc -match 'Realtek') {
+                    $pwrPath = Join-Path $_.PSPath 'PowerSettings'
+                    if (Test-Path $pwrPath) {
+                        $zero4 = [byte[]](0,0,0,0)
+                        Set-ItemProperty -Path $pwrPath -Name 'ConservationIdleTime' -Value $zero4 -Type Binary -Force
+                        Set-ItemProperty -Path $pwrPath -Name 'PerformanceIdleTime'  -Value $zero4 -Type Binary -Force
+                        Set-ItemProperty -Path $pwrPath -Name 'IdlePowerState'       -Value $zero4 -Type Binary -Force
+                    }
+                }
+            }
+
+            # 4. Alinhar dispositivos Realtek ativos em 48000 Hz / 24-32bit quando estiverem em >=96kHz (evita resampling CPU para jogos/OBS)
+            $fmtChanged = $false
+            $stoppedAudio = $false
+            try {
+                if ($AllowRestartAudio) {
+                    Stop-Service -Name 'Audiosrv' -Force -ErrorAction SilentlyContinue
+                    $stoppedAudio = $true
+                }
+                foreach ($role in @('Render','Capture')) {
+                    $mmRoot = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\$role"
+                    Get-ChildItem $mmRoot -ErrorAction SilentlyContinue | ForEach-Object {
+                        $epState = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DeviceState
+                        if ($epState -ne 1) { return }
+                        $prPath = Join-Path $_.PSPath 'Properties'
+                        $fxPath = Join-Path $_.PSPath 'FxProperties'
+                        $pr = Get-ItemProperty $prPath -ErrorAction SilentlyContinue
+                        if (-not ($pr.'{b3f8fa53-0004-438e-9003-51a46e139bfc},6' -match 'Realtek')) { return }
+
+                        foreach ($subPath in @($prPath, $fxPath)) {
+                            if (-not (Test-Path $subPath)) { continue }
+                            $obj = Get-ItemProperty $subPath -ErrorAction SilentlyContinue
+                            if (-not $obj) { continue }
+                            foreach ($prop in $obj.PSObject.Properties) {
+                                if ($prop.Name -like 'PS*' -or -not ($prop.Value -is [byte[]])) { continue }
+                                $blob = $prop.Value
+                                if ($blob.Length -ge 40 -and $blob.Length -le 128) {
+                                    $tag = [BitConverter]::ToUInt16($blob, 8)
+                                    $ch  = [BitConverter]::ToUInt16($blob, 10)
+                                    $sr  = [BitConverter]::ToUInt32($blob, 12)
+                                    $ba  = [BitConverter]::ToUInt16($blob, 20)
+                                    if ($tag -eq 0xFFFE -and ($ch -eq 1 -or $ch -eq 2) -and $sr -ge 96000 -and $ba -in @(2,4,6,8)) {
+                                        $newBlob = [byte[]]::new($blob.Length)
+                                        [Array]::Copy($blob, $newBlob, $blob.Length)
+                                        [BitConverter]::GetBytes([uint32]48000).CopyTo($newBlob, 12)
+                                        [BitConverter]::GetBytes([uint32](48000 * $ba)).CopyTo($newBlob, 16)
+                                        Set-ItemProperty -Path $subPath -Name $prop.Name -Value $newBlob -Type Binary -Force -ErrorAction SilentlyContinue
+                                        $fmtChanged = $true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                if ($stoppedAudio) {
+                    Start-Service -Name 'Audiosrv' -ErrorAction SilentlyContinue
+                }
+            }
+
+            if ($fmtChanged -and $AllowRestartAudio) {
+                Write-Log "Realtek Audio padronizado para 48000 Hz / 24-32bit Estereo (sem perda e sem resampling de CPU)." "Green" -Silent:$Silent
+            }
+        } catch {}
+    }
+
+    # 5. Prioridade do AudioDg conforme workload
+    $audPrio = if ($PresetMode -in @('Jogos','Streaming')) { [System.Diagnostics.ProcessPriorityClass]::AboveNormal } else { [System.Diagnostics.ProcessPriorityClass]::Normal }
+    Get-Process -Name 'audiodg' -ErrorAction SilentlyContinue | ForEach-Object {
+        try { if ($_.PriorityClass -ne $audPrio) { $_.PriorityClass = $audPrio } } catch {}
+    }
+}
+
+function Get-PrimaryScreenResolution {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        if ($b.Width -ge 800 -and $b.Height -ge 600) { return @{ W = $b.Width; H = $b.Height } }
+    } catch {}
+    return @{ W = 1920; H = 1080 }
+}
+
+function Set-IniKeyValue {
+    param([string]$FilePath, [string]$SectionName, [string]$Key, [string]$Value)
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    $lines = [System.Collections.Generic.List[string]]::new()
+    if (Test-Path $FilePath) {
+        $lines.AddRange([string[]][System.IO.File]::ReadAllLines($FilePath, $enc))
+    }
+    $header = "[$SectionName]"
+    $secIdx = -1; $endIdx = $lines.Count
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].Trim() -ieq $header) {
+            $secIdx = $i
+            for ($j = $i + 1; $j -lt $lines.Count; $j++) {
+                if ($lines[$j].Trim() -match '^\[.+\]$') { $endIdx = $j; break }
+            }
+            break
+        }
+    }
+    if ($secIdx -lt 0) {
+        $lines.Add($header)
+        $lines.Add("$Key=$Value")
+    } else {
+        $found = $false
+        for ($k = $secIdx + 1; $k -lt $endIdx; $k++) {
+            if ($lines[$k] -match ("^" + [regex]::Escape($Key) + "\s*=")) {
+                $lines[$k] = "$Key=$Value"
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) { $lines.Insert($endIdx, "$Key=$Value") }
+    }
+    [System.IO.File]::WriteAllLines($FilePath, $lines.ToArray(), $enc)
+}
+
+function Optimize-ObsStudio {
+    param(
+        $Hw,
+        [ValidateSet('Jogos','Streaming')]
+        [string]$PresetMode = 'Streaming',
+        [switch]$ForceProfileUpdate,
+        [switch]$Silent
+    )
+    if (-not $AutoOptimizeApps) { return }
+    $obsRoot = Join-Path $env:APPDATA "obs-studio"
+    if (-not (Test-Path $obsRoot)) { return }
+
+    $obsRunning = ($null -ne (Get-Process -Name 'obs64','obs32' -ErrorAction SilentlyContinue))
+    if ($obsRunning -and (-not $ForceProfileUpdate)) {
+        Get-Process -Name 'obs64','obs32' -ErrorAction SilentlyContinue | ForEach-Object {
+            try { if ($_.PriorityClass -ne [System.Diagnostics.ProcessPriorityClass]::High) { $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High } } catch {}
+        }
+        return
+    }
+    if ($obsRunning -and $ForceProfileUpdate) {
+        Write-Log "OBS Studio esta aberto no momento; feche o OBS e execute novamente para gravar os arquivos sem conflito." "Yellow" -Silent:$Silent
+        return
+    }
+
+    $globalIni = Join-Path $obsRoot "global.ini"
+    if (Test-Path $globalIni) {
+        if (-not (Test-Path "$globalIni.bak_modojogo")) { Copy-Item $globalIni "$globalIni.bak_modojogo" -Force }
+        $hwBrowser = if ($Hw.LowVram -or $PresetMode -eq 'Jogos' -or $Hw.IsLaptop) { 'false' } else { 'true' }
+        Set-IniKeyValue -FilePath $globalIni -SectionName 'General' -Key 'ProcessPriority' -Value 'High'
+        Set-IniKeyValue -FilePath $globalIni -SectionName 'General' -Key 'BrowserHWAccel' -Value $hwBrowser
+        Set-IniKeyValue -FilePath $globalIni -SectionName 'Audio'   -Key 'DisableAudioDucking' -Value 'true'
+    }
+
+    $scr = Get-PrimaryScreenResolution
+    $baseW = $scr.W; $baseH = $scr.H
+    if ($Hw.VramMB -ge 3500 -and $Hw.CpuCores -ge 4) {
+        if ($baseW -gt 1920) { $outW = 1920; $outH = 1080 } else { $outW = [int]($baseW - ($baseW % 4)); $outH = [int]($baseH - ($baseH % 2)) }
+    } else {
+        $outW = 1280; $outH = 720
+    }
+    $fpsVal = if ($Hw.CpuCores -ge 4 -and $Hw.VramMB -ge 2000) { 60 } else { 30 }
+
+    $streamEnc = 'obs_x264'; $recEnc = 'obs_x264'; $encKind = 'x264'
+    if ($Hw.GpuVendor -eq 'NVIDIA' -and $Hw.VramMB -ge 2000) {
+        $streamEnc = 'obs_nvenc_h264_tex'; $recEnc = 'obs_nvenc_h264_tex'; $encKind = 'nvenc'
+    } elseif ($Hw.GpuVendor -eq 'AMD' -and $Hw.VramMB -ge 2000) {
+        $streamEnc = 'h264_texture_amf'; $recEnc = 'h264_texture_amf'; $encKind = 'amf'
+    } elseif ($Hw.GpuVendor -eq 'Intel') {
+        $streamEnc = 'obs_qsv11'; $recEnc = 'obs_qsv11'; $encKind = 'qsv'
+    }
+
+    $streamBitrate = if ($outW -ge 1920 -and $fpsVal -eq 60) { 7500 } elseif ($Hw.VramMB -ge 3500) { 6000 } else { 4500 }
+    $nvPreset = if ($PresetMode -eq 'Jogos' -or $Hw.IsLaptop -or $Hw.LowVram) { 'p4' } else { 'p5' }
+    $cqpVal   = if ($PresetMode -eq 'Streaming' -and -not $Hw.IsLaptop) { 18 } else { 20 }
+
+    $profilesRoot = Join-Path $obsRoot "basic\profiles"
+    if (-not (Test-Path $profilesRoot)) { return }
+
+    $targetDirs = [System.Collections.Generic.List[string]]::new()
+    Get-ChildItem $profilesRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { $targetDirs.Add($_.FullName) }
+    foreach ($named in @('Antigravity_Jogos_Desempenho','Antigravity_Streaming_Qualidade')) {
+        $nd = Join-Path $profilesRoot $named
+        if (-not (Test-Path $nd)) {
+            $seed = $targetDirs | Select-Object -First 1
+            if ($seed) { Copy-Item $seed $nd -Recurse -Force } else { New-Item $nd -ItemType Directory -Force | Out-Null }
+        }
+        if (-not $targetDirs.Contains($nd)) { $targetDirs.Add($nd) }
+    }
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    foreach ($pDir in $targetDirs) {
+        $pName = Split-Path $pDir -Leaf
+        $isJogosProf = ($pName -eq 'Antigravity_Jogos_Desempenho') -or ($pName -notmatch 'Streaming' -and $PresetMode -eq 'Jogos')
+        $localNvPreset = if ($isJogosProf -or $Hw.IsLaptop) { 'p4' } else { 'p5' }
+        $localCqp      = if ($isJogosProf -or $Hw.IsLaptop) { 20 } else { 18 }
+
+        $basicIni = Join-Path $pDir 'basic.ini'
+        if ((Test-Path $basicIni) -and (-not (Test-Path "$basicIni.bak_modojogo"))) { Copy-Item $basicIni "$basicIni.bak_modojogo" -Force }
+        if ($pName -eq 'Antigravity_Jogos_Desempenho') { Set-IniKeyValue -FilePath $basicIni -SectionName 'General' -Key 'Name' -Value 'Antigravity - Jogos (Desempenho)' }
+        if ($pName -eq 'Antigravity_Streaming_Qualidade') { Set-IniKeyValue -FilePath $basicIni -SectionName 'General' -Key 'Name' -Value 'Antigravity - Streaming (Alta Qualidade)' }
+
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Output' -Key 'Mode' -Value 'Advanced'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'BaseCX' -Value "$baseW"
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'BaseCY' -Value "$baseH"
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'OutputCX' -Value "$outW"
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'OutputCY' -Value "$outH"
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'FPSType' -Value '1'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'FPSCommon' -Value "$fpsVal"
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'FPSInt' -Value "$fpsVal"
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'ScaleType' -Value 'lanczos'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'ColorFormat' -Value 'NV12'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'ColorSpace' -Value '709'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Video'  -Key 'ColorRange' -Value 'Partial'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Audio'  -Key 'SampleRate' -Value '48000'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'Audio'  -Key 'ChannelSetup' -Value 'Stereo'
+
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'Encoder' -Value $streamEnc
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'RecEncoder' -Value $recEnc
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'RecFormat2' -Value 'mkv'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'AudioEncoder' -Value 'ffmpeg_aac'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'RecTracks' -Value '3'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'Track1Bitrate' -Value '192'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'Track2Bitrate' -Value '320'
+        Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'Track3Bitrate' -Value '320'
+
+        $curRecPath = Get-IniSectionValue -FilePath $basicIni -SectionName 'AdvOut' -KeyName 'RecFilePath'
+        if ([string]::IsNullOrWhiteSpace($curRecPath) -or (-not (Test-Path $curRecPath))) {
+            $bestDrv = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Sort-Object FreeSpace -Descending | Select-Object -First 1
+            if ($bestDrv) {
+                $recDir = Join-Path ($bestDrv.DeviceID + "\") "Videos"
+                New-Item -Path $recDir -ItemType Directory -Force | Out-Null
+                Set-IniKeyValue -FilePath $basicIni -SectionName 'AdvOut' -Key 'RecFilePath' -Value ($recDir.Replace('\','/'))
+            }
+        }
+
+        if ($encKind -eq 'nvenc') {
+            $sObj = [ordered]@{ rate_control='CBR'; bitrate=$streamBitrate; preset2=$localNvPreset; tuning='hq'; multipass='qres'; profile='high'; bf=2; psycho_aq=$true; lookahead=$false }
+            $rObj = [ordered]@{ rate_control='CQP'; cqp=$localCqp; preset2=$localNvPreset; tuning='hq'; multipass='qres'; profile='high'; bf=2; psycho_aq=$true; lookahead=$false }
+        } elseif ($encKind -eq 'x264') {
+            $xPreset = if ($Hw.CpuCores -ge 8) { 'faster' } elseif ($Hw.CpuCores -ge 6) { 'veryfast' } else { 'superfast' }
+            $sObj = [ordered]@{ rate_control='CBR'; bitrate=$streamBitrate; preset=$xPreset; profile='high' }
+            $rObj = [ordered]@{ rate_control='CRF'; crf=($localCqp + 1); preset=$xPreset; profile='high' }
+        } else {
+            $sObj = [ordered]@{ rate_control='CBR'; bitrate=$streamBitrate }
+            $rObj = [ordered]@{ rate_control='CQP'; cqp=$localCqp }
+        }
+
+        $sJsonPath = Join-Path $pDir 'streamEncoder.json'
+        $rJsonPath = Join-Path $pDir 'recordEncoder.json'
+        if ((Test-Path $sJsonPath) -and (-not (Test-Path "$sJsonPath.bak_modojogo"))) { Copy-Item $sJsonPath "$sJsonPath.bak_modojogo" -Force }
+        if ((Test-Path $rJsonPath) -and (-not (Test-Path "$rJsonPath.bak_modojogo"))) { Copy-Item $rJsonPath "$rJsonPath.bak_modojogo" -Force }
+        [System.IO.File]::WriteAllText($sJsonPath, ($sObj | ConvertTo-Json -Compress), $utf8NoBom)
+        [System.IO.File]::WriteAllText($rJsonPath, ($rObj | ConvertTo-Json -Compress), $utf8NoBom)
+    }
+    Write-Log "OBS Studio calibrado ($encKind ${outW}x${outH}@${fpsVal}fps | CQP $cqpVal / Stream ${streamBitrate}kbps | Audio 48kHz 192/320k)." "Green" -Silent:$Silent
+}
+
+function Optimize-OtherPcPrograms {
+    param($Hw, [switch]$Silent)
+    if (-not $AutoOptimizeApps) { return }
+
+    # 1. Wallpaper Engine: pausar automaticamente VRAM/GPU em tela cheia / maximizado
+    $wePaths = @()
+    Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' } | ForEach-Object {
+        foreach ($sub in @('Program Files (x86)\Steam\steamapps\common\wallpaper_engine\config.json','SteamLibrary\steamapps\common\wallpaper_engine\config.json')) {
+            $p = Join-Path $_.Root $sub
+            if (Test-Path $p) { $wePaths += $p }
+        }
+    }
+    foreach ($we in $wePaths) {
+        if ($null -eq (Get-Process -Name 'wallpaper32','wallpaper64' -ErrorAction SilentlyContinue)) {
+            try {
+                if (-not (Test-Path "$we.bak_modojogo")) { Copy-Item $we "$we.bak_modojogo" -Force }
+                $txt = [System.IO.File]::ReadAllText($we, [System.Text.Encoding]::UTF8)
+                $upd = $txt
+                $upd = $upd -replace '("playbackmaximized"\s*:\s*)"[^"]+"', '$1"pause"'
+                $upd = $upd -replace '("pausevram"\s*:\s*)false', '$1true'
+                if ($Hw.LowVram -or $Hw.IsLaptop) {
+                    $upd = $upd -replace '("fps"\s*:\s*)\d+', '$130'
+                }
+                if ($upd -ne $txt) {
+                    [System.IO.File]::WriteAllText($we, $upd, (New-Object System.Text.UTF8Encoding($false)))
+                    Write-Log "Wallpaper Engine configurado para liberar GPU/VRAM durante jogos e OBS." "Green" -Silent:$Silent
+                }
+            } catch {}
+        }
+    }
+
+    # 2. Discord: protege hardware em GPUs de menor VRAM e mantem audio limpo
+    $discCfg = Join-Path $env:APPDATA "discord\settings.json"
+    if ((Test-Path $discCfg) -and ($null -eq (Get-Process -Name 'Discord' -ErrorAction SilentlyContinue))) {
+        try {
+            if (-not (Test-Path "$discCfg.bak_modojogo")) { Copy-Item $discCfg "$discCfg.bak_modojogo" -Force }
+            $dObj = Get-Content $discCfg -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($Hw.VramMB -le 3500 -or $Hw.IsLaptop) {
+                $dObj | Add-Member -NotePropertyName 'enableHardwareAcceleration' -NotePropertyValue $false -Force
+            }
+            ($dObj | ConvertTo-Json -Depth 6) | Set-Content $discCfg -Encoding UTF8
+        } catch {}
+    }
+
+    # 3. Steam: desativar WebView GPU acceleration pesada em GPUs de 4GB ou notebook
+    $steamReg = 'HKCU:\Software\Valve\Steam'
+    if ((Test-Path $steamReg) -and ($Hw.LowVram -or $Hw.IsLaptop)) {
+        Set-ItemProperty -Path $steamReg -Name 'GPUAccelWebViews' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $steamReg -Name 'GPUAccelWebViewsV3' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    }
+}
+
+function Set-VdfKeyValue {
+    param([string]$FilePath, [string]$Key, [string]$Value)
+    if (-not (Test-Path $FilePath)) { return }
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    $raw = [System.IO.File]::ReadAllText($FilePath, $enc)
+    $esc = [regex]::Escape($Key)
+    if ($raw -match ('"' + $esc + '"\s+"[^"]*"')) {
+        $upd = [regex]::Replace($raw, '("' + $esc + '"\s+)"[^"]*"', "`${1}`"$Value`"")
+    } else {
+        $idxEnd = $raw.LastIndexOf('}')
+        if ($idxEnd -gt 0) {
+            $upd = $raw.Substring(0, $idxEnd) + "`t`"$Key`"`t`t`"$Value`"`r`n}" + $raw.Substring($idxEnd + 1)
+        } else {
+            $upd = $raw
+        }
+    }
+    if ($upd -ne $raw) { [System.IO.File]::WriteAllText($FilePath, $upd, $enc) }
+}
+
+function Find-ExistingUpscalers {
+    $found = [ordered]@{
+        LosslessScaling = $null
+        Magpie          = $null
+        OptiScaler      = $null
+    }
+    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
+    foreach ($drv in $drives) {
+        foreach ($sub in @('Program Files (x86)\Steam\steamapps\common\Lossless Scaling\LosslessScaling.exe','SteamLibrary\steamapps\common\Lossless Scaling\LosslessScaling.exe')) {
+            $p = Join-Path $drv.Root $sub
+            if (Test-Path $p) { $found.LosslessScaling = $p; break }
+        }
+    }
+    $toolsDir = Join-Path $InstallDir "Tools"
+    $magExe = Join-Path $toolsDir "Magpie\Magpie.exe"
+    if (Test-Path $magExe) { $found.Magpie = $magExe }
+    $optDir = Join-Path $toolsDir "OptiScaler"
+    if ((Test-Path $optDir) -and (Get-ChildItem $optDir -Filter "*.dll" -ErrorAction SilentlyContinue).Count -gt 0) {
+        $found.OptiScaler = $optDir
+    }
+    return [PSCustomObject]$found
+}
+
+function Optimize-AmdFsrAndUpscaling {
+    param($Hw, [switch]$Silent)
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+
+    # 1. Windows Game Mode, FSE/Contrast e PCIe Link para DirectStorage/Upscaling sem gargalos
+    try {
+        $gb = 'HKCU:\Software\Microsoft\GameBar'
+        New-Item -Path $gb -Force | Out-Null
+        Set-ItemProperty -Path $gb -Name 'AllowAutoGameMode' -Value 1 -Type DWord -Force
+        Set-ItemProperty -Path $gb -Name 'AutoGameModeEnabled' -Value 1 -Type DWord -Force
+    } catch {}
+
+    $calibrated = [System.Collections.Generic.List[string]]::new()
+
+    # 2. CS2 (Source 2): calibra AMD FSR 1.0 + Reflex/Latencia conforme GPU/Monitor do PC
+    if ($null -eq (Get-Process -Name 'cs2' -ErrorAction SilentlyContinue)) {
+        $steamRoots = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        try {
+            $regSteam = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
+            if ($regSteam) { [void]$steamRoots.Add(($regSteam -replace '/','\')) }
+        } catch {}
+        foreach ($pf in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+            if ($pf) { [void]$steamRoots.Add((Join-Path $pf 'Steam')) }
+        }
+        $cs2Cfgs = @()
+        foreach ($sr in $steamRoots) {
+            $ud = Join-Path $sr 'userdata'
+            if (Test-Path $ud) {
+                $cs2Cfgs += Get-ChildItem -Path $ud -Filter 'cs2_video.txt' -Recurse -File -ErrorAction SilentlyContinue
+            }
+        }
+        $cs2Cfgs = $cs2Cfgs | Sort-Object FullName -Unique
+        foreach ($f in $cs2Cfgs) {
+            if (-not (Test-Path "$($f.FullName).bak_modojogo")) { Copy-Item $f.FullName "$($f.FullName).bak_modojogo" -Force }
+            $fsrMode = if ($Hw.LowVram) {
+                if ($Hw.DisplayW -le 1440) { "1" } else { "2" }
+            } elseif ($Hw.DisplayW -ge 2560 -and $Hw.VramMB -lt 10000) {
+                "1"
+            } else {
+                "0"
+            }
+            $reflex = if ($Hw.GpuVendor -eq 'NVIDIA') { "2" } else { "1" }
+            Set-VdfKeyValue -FilePath $f.FullName -Key 'setting.videocfg_fsr_detail' -Value $fsrMode
+            Set-VdfKeyValue -FilePath $f.FullName -Key 'setting.r_low_latency' -Value $reflex
+            Set-VdfKeyValue -FilePath $f.FullName -Key 'setting.mat_vsync' -Value '0'
+            if ($Hw.LowVram) {
+                Set-VdfKeyValue -FilePath $f.FullName -Key 'setting.gpu_mem_level' -Value '0'
+            }
+            $calibrated.Add("CS2 (FSR=$fsrMode, Reflex=$reflex)")
+        }
+    } else {
+        Write-Log "CS2 aberto no momento; mantendo cs2_video.txt atual sem sobrescrever em uso." "Yellow" -Silent:$Silent
+    }
+
+    # 3. Overwatch: remove trava VSync 60Hz, ativa RenderScale dinamico em LowVRAM e HighTickInput
+    $owIni = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Overwatch\Settings\Settings_v0.ini"
+    if ((Test-Path $owIni) -and ($null -eq (Get-Process -Name 'Overwatch' -ErrorAction SilentlyContinue))) {
+        if (-not (Test-Path "$owIni.bak_modojogo")) { Copy-Item $owIni "$owIni.bak_modojogo" -Force }
+        Set-IniKeyValue -FilePath $owIni -SectionName 'Render.13' -Key 'VerticalSyncEnabled' -Value '"0"'
+        Set-IniKeyValue -FilePath $owIni -SectionName 'Render.13' -Key 'TripleBufferingEnabled' -Value '"0"'
+        Set-IniKeyValue -FilePath $owIni -SectionName 'Render.13' -Key 'DesiredFrameRate' -Value "`"$($Hw.DisplayHz)`""
+        if ($Hw.LowVram) {
+            Set-IniKeyValue -FilePath $owIni -SectionName 'Render.13' -Key 'AADetail' -Value '"1"'
+            Set-IniKeyValue -FilePath $owIni -SectionName 'Render.13' -Key 'RenderScale' -Value '"85"'
+        }
+        Set-IniKeyValue -FilePath $owIni -SectionName 'Input.1' -Key 'HighTickInput' -Value '"1"'
+        $calibrated.Add("Overwatch ($($Hw.DisplayHz)Hz sem VSync)")
+    }
+
+    # 4. Otimizacao global de cache DirectX/Shader e recomendacao de compatibilidade FSR
+    $ups = Find-ExistingUpscalers
+    $upInfo = @()
+    if ($ups.LosslessScaling) { $upInfo += "LosslessScaling" }
+    if ($ups.Magpie)          { $upInfo += "Magpie(FSR)" }
+    if ($ups.OptiScaler)      { $upInfo += "OptiScaler(DLSS->FSR)" }
+    $archNote = if ($Hw.NoTensorCores) { "GPU sem Tensor Cores -> AMD FSR 1/2/3 + OptiScaler/Magpie recomendado no lugar de DLSS" } else { "Tensor Cores OK (DLSS + FSR disponiveis)" }
+    $calSummary = if ($calibrated.Count -gt 0) { $calibrated -join ', ' } else { "Config de jogos verificada" }
+    $upText = if ($upInfo.Count -gt 0) { $upInfo -join '+' } else { "use [12] para instalar Magpie/OptiScaler" }
+    Write-Log "AMD FSR & Upscaling: $calSummary | $archNote | Ferramentas: $upText" "Cyan" -Silent:$Silent
+}
+
+function Install-FsrToolchain {
+    param($Hw)
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    if (-not (Test-IsAdmin)) {
+        Write-Log "Execute como Administrador para instalar ferramentas em $InstallDir." "Red"
+        return
+    }
+    $toolsRoot = Join-Path $InstallDir "Tools"
+    New-Item -Path $toolsRoot -ItemType Directory -Force | Out-Null
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch {}
+
+    # 1. Baixar Magpie (Open-Source AMD FSR 1.0 Universal para QUALQUER jogo em janela/borda)
+    Write-Host "`n[1/2] Consultando versao oficial do Magpie (AMD FSR 1.0 Universal) no GitHub..." -ForegroundColor Cyan
+    try {
+        $relM = Invoke-RestMethod -Uri "https://api.github.com/repos/Blinue/Magpie/releases/latest" -Headers @{ 'User-Agent' = 'ModoJogoAutomatico' } -TimeoutSec 20
+        $assetM = $relM.assets | Where-Object { $_.name -match 'x64.*\.zip$' } | Select-Object -First 1
+        if (-not $assetM) { $assetM = $relM.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1 }
+        if ($assetM) {
+            $zipM = Join-Path $env:TEMP $assetM.name
+            $destM = Join-Path $toolsRoot "Magpie"
+            Invoke-WebRequest -Uri $assetM.browser_download_url -OutFile $zipM -UseBasicParsing -TimeoutSec 90
+            New-Item -Path $destM -ItemType Directory -Force | Out-Null
+            Expand-Archive -Path $zipM -DestinationPath $destM -Force
+            Remove-Item $zipM -Force -ErrorAction SilentlyContinue
+            Write-Log "Magpie (AMD FSR 1.0 Universal) instalado em $destM" "Green"
+
+            $batRunner = Join-Path ([Environment]::GetFolderPath('Desktop')) "Ativar_FSR_Universal_Magpie.bat"
+            $runnerContent = "@echo off`r`nstart `"`" `"$destM\Magpie.exe`"`r`n"
+            [System.IO.File]::WriteAllText($batRunner, $runnerContent, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Log "Atalho criado na Area de Trabalho: Ativar_FSR_Universal_Magpie.bat (abra o jogo em janela/borda e aperte Win+Shift+A)." "Cyan"
+        }
+    } catch {
+        Write-Log "Nao foi possivel baixar Magpie agora ($($_.Exception.Message))." "Yellow"
+    }
+
+    # 2. Baixar OptiScaler (Converte DLSS/XeSS -> AMD FSR 2/3 para placas sem Tensor Cores ou DX11/DX12)
+    Write-Host "`n[2/2] Consultando versao oficial do OptiScaler (Ponte DLSS -> AMD FSR 2/3) no GitHub..." -ForegroundColor Cyan
+    try {
+        $relO = Invoke-RestMethod -Uri "https://api.github.com/repos/optiscaler/OptiScaler/releases/latest" -Headers @{ 'User-Agent' = 'ModoJogoAutomatico' } -TimeoutSec 20
+        $assetO = $relO.assets | Where-Object { $_.name -match '\.(zip|7z)$' } | Select-Object -First 1
+        if ($assetO) {
+            $arcO = Join-Path $env:TEMP $assetO.name
+            $destO = Join-Path $toolsRoot "OptiScaler"
+            Invoke-WebRequest -Uri $assetO.browser_download_url -OutFile $arcO -UseBasicParsing -TimeoutSec 90
+            New-Item -Path $destO -ItemType Directory -Force | Out-Null
+            if ($arcO -match '\.zip$') {
+                Expand-Archive -Path $arcO -DestinationPath $destO -Force
+            } elseif (Get-Command tar -ErrorAction SilentlyContinue) {
+                & tar -xf $arcO -C $destO 2>$null
+            }
+            Remove-Item $arcO -Force -ErrorAction SilentlyContinue
+            Write-Log "OptiScaler (DLSS/XeSS -> AMD FSR 2.x/3.x) extraido em $destO" "Green"
+
+            # Detectar jogos com nvngx_dlss.dll e oferecer injecao segura com backup
+            $dlssGames = [System.Collections.Generic.List[object]]::new()
+            $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
+            foreach ($drv in $drives) {
+                foreach ($sub in @('SteamLibrary\steamapps\common','Program Files (x86)\Steam\steamapps\common','Epic Games','Games','Jogos')) {
+                    $base = Join-Path $drv.Root $sub
+                    if (Test-Path $base) {
+                        Get-ChildItem -Path $base -Filter "nvngx_dlss.dll" -Recurse -Depth 8 -File -ErrorAction SilentlyContinue | ForEach-Object {
+                            $dlssGames.Add($_)
+                        }
+                    }
+                }
+            }
+            if ($dlssGames.Count -gt 0) {
+                Write-Host "`nJogos com suporte a DLSS encontrados (podem receber AMD FSR 2/3 via OptiScaler):" -ForegroundColor Cyan
+                for ($idx = 0; $idx -lt $dlssGames.Count; $idx++) {
+                    Write-Host (" [{0}] {1}" -f ($idx + 1), $dlssGames[$idx].DirectoryName)
+                }
+                $pick = Read-Host "Digite o numero do jogo para instalar OptiScaler (ou Enter para pular)"
+                $nIdx = 0
+                if ([int]::TryParse($pick, [ref]$nIdx) -and $nIdx -ge 1 -and $nIdx -le $dlssGames.Count) {
+                    $targetDir = $dlssGames[$nIdx - 1].DirectoryName
+                    $optMain = Get-ChildItem $destO -Filter "OptiScaler*.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if (-not $optMain) { $optMain = Get-ChildItem $destO -Filter "nvngx.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
+                    $optIni  = Get-ChildItem $destO -Filter "OptiScaler.ini" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($optMain) {
+                        $outDll = Join-Path $targetDir "nvngx.dll"
+                        if ((Test-Path $outDll) -and (-not (Test-Path "$outDll.bak_modojogo"))) { Copy-Item $outDll "$outDll.bak_modojogo" -Force }
+                        Copy-Item $optMain.FullName $outDll -Force
+                        if ($optIni) { Copy-Item $optIni.FullName (Join-Path $targetDir "OptiScaler.ini") -Force }
+                        Write-Log "OptiScaler instalado em $targetDir (aperte Insert dentro do jogo para escolher FSR 2/3)." "Green"
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Log "Nao foi possivel baixar OptiScaler agora ($($_.Exception.Message))." "Yellow"
+    }
+}
+
+function Optimize-SdxlAndAiEnvironment {
+    param($Hw, [switch]$Silent)
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+
+    # 1. Variaveis globais CUDA / PyTorch otimizadas para memoria e carregamento rapido
+    $allocConf = if ($Hw.LowVram) {
+        'expandable_segments:True,garbage_collection_threshold:0.6,max_split_size_mb:128'
+    } elseif ($Hw.VramMB -le 8500) {
+        'expandable_segments:True,garbage_collection_threshold:0.8'
+    } else {
+        'expandable_segments:True'
+    }
+
+    try {
+        [Environment]::SetEnvironmentVariable('CUDA_MODULE_LOADING', 'LAZY', 'User')
+        [Environment]::SetEnvironmentVariable('SAFETENSORS_FAST_GPU', '1', 'User')
+        [Environment]::SetEnvironmentVariable('PYTORCH_CUDA_ALLOC_CONF', $allocConf, 'User')
+    } catch {}
+
+    $sdxlArgs = if ($Hw.LowVram -and $Hw.IsPascalOrOlder) {
+        '--lowvram --opt-sdp-attention --no-half-vae --disable-nan-check'
+    } elseif ($Hw.LowVram) {
+        '--lowvram --opt-sdp-attention'
+    } elseif ($Hw.VramMB -le 8500) {
+        '--medvram-sdxl --opt-sdp-attention'
+    } else {
+        '--opt-sdp-attention'
+    }
+
+    # 2. Detectar ComfyUI / Automatic1111 / Forge / Fooocus / SD.Next e gerar launcher SDXL sob medida
+    $aiRoots = [System.Collections.Generic.List[string]]::new()
+    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
+    foreach ($drv in $drives) {
+        Get-ChildItem -Path $drv.Root -Directory -Depth 2 -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match 'ComfyUI|stable-diffusion|webui|forge|Fooocus|SDNext|SD\.Next|InvokeAI'
+        } | ForEach-Object { $aiRoots.Add($_.FullName) }
+    }
+
+    $configuredCount = 0
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    foreach ($dir in $aiRoots) {
+        $webuiBat = Join-Path $dir "webui-user.bat"
+        if (Test-Path $webuiBat) {
+            if (-not (Test-Path "$webuiBat.bak_modojogo")) { Copy-Item $webuiBat "$webuiBat.bak_modojogo" -Force }
+            $txt = [System.IO.File]::ReadAllText($webuiBat, $utf8NoBom)
+            $upd = $txt -replace '(?m)^set\s+COMMANDLINE_ARGS=.*$', "set COMMANDLINE_ARGS=$sdxlArgs"
+            if ($upd -notmatch 'PYTORCH_CUDA_ALLOC_CONF') {
+                $upd = "set CUDA_MODULE_LOADING=LAZY`r`nset SAFETENSORS_FAST_GPU=1`r`nset PYTORCH_CUDA_ALLOC_CONF=$allocConf`r`n" + $upd
+            }
+            if ($upd -ne $txt) { [System.IO.File]::WriteAllText($webuiBat, $upd, $utf8NoBom) }
+            $configuredCount++
+        }
+        $mainPy = Join-Path $dir "main.py"
+        if ((Test-Path $mainPy) -and ($dir -match 'ComfyUI')) {
+            $cFlags = if ($Hw.LowVram) { "--lowvram --preview-method auto" } elseif ($Hw.VramMB -le 8500) { "--normalvram --preview-method auto" } else { "--highvram --preview-method auto" }
+            $comfyBat = Join-Path $dir "Start_SDXL_Optimized.bat"
+            $cBody = "@echo off`r`nset CUDA_MODULE_LOADING=LAZY`r`nset SAFETENSORS_FAST_GPU=1`r`nset PYTORCH_CUDA_ALLOC_CONF=$allocConf`r`npython main.py $cFlags`r`npause`r`n"
+            [System.IO.File]::WriteAllText($comfyBat, $cBody, $utf8NoBom)
+            $configuredCount++
+        }
+    }
+
+    $pfUsage = Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue | Select-Object -First 1
+    $pfNote = if ($pfUsage) { "PageFile=$($pfUsage.AllocatedBaseSize)MB" } else { "PageFile=Auto" }
+    $aiNote = if ($configuredCount -gt 0) { "$configuredCount ambiente(s) SDXL otimizados ($sdxlArgs)" } else { "Variaveis CUDA/PyTorch prontas ($sdxlArgs)" }
+    Write-Log "Otimizacao SDXL / IA aplicada: $aiNote | CUDA_MODULE_LOADING=LAZY | $pfNote" "Green" -Silent:$Silent
+}
+
+function Apply-AudioVisualPreset {
+    param(
+        [ValidateSet('Jogos','Streaming','Economia')]
+        [string]$PresetMode = 'Jogos',
+        $Hw,
+        [switch]$FullCalibrate,
+        [switch]$Silent
+    )
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    [void](Save-ModoJogoConfig -ActiveAVPreset $PresetMode)
+
+    Optimize-RealtekAndAudio -PresetMode $PresetMode -AllowRestartAudio:$FullCalibrate -Silent:$Silent
+    if ($PresetMode -eq 'Economia') {
+        Ensure-DisplayContrastAndColor -Silent:$Silent
+    } else {
+        Ensure-DisplayContrastAndColor -SkipGammaRamp:(-not $FullCalibrate) -Silent:$Silent
+    }
+    if ($FullCalibrate -and $PresetMode -ne 'Economia') {
+        Optimize-ObsStudio -Hw $Hw -PresetMode $PresetMode -ForceProfileUpdate:$FullCalibrate -Silent:$Silent
+        Optimize-OtherPcPrograms -Hw $Hw -Silent:$Silent
+        Optimize-AmdFsrAndUpscaling -Hw $Hw -Silent:$Silent
+        Optimize-SdxlAndAiEnvironment -Hw $Hw -Silent:$Silent
+    }
+    Write-Log "Predefinicao Audio/Imagem [$PresetMode] aplicada (48kHz Estereo, Sem Ducking, RGB Full 0-255, Gama/DDC)." "Cyan" -Silent:$Silent
+}
+
 function Set-BackgroundAppsThrottled {
-    param([bool]$Throttle, $Hw, [switch]$InteractiveClosePrompt)
+    param([bool]$Throttle, $Hw, [switch]$InteractiveClosePrompt, [string]$WorkloadKind = 'Game')
     $targetPrio = if ($Throttle) { [System.Diagnostics.ProcessPriorityClass]::Idle } else { [System.Diagnostics.ProcessPriorityClass]::Normal }
-    $browsers   = @('brave','chrome','msedge','firefox','opera')
-    $helpers    = @('steamwebhelper','SearchIndexer','DSATray')
 
     if ($Throttle -and $InteractiveClosePrompt) {
-        $openBrowsers = @(Get-Process -Name $browsers -ErrorAction SilentlyContinue)
+        $openBrowsers = @(Get-Process -Name $BackgroundThrottleBrowsers -ErrorAction SilentlyContinue)
         if ($openBrowsers.Count -gt 0) {
             $mb = [math]::Round((($openBrowsers | Measure-Object WorkingSet64 -Sum).Sum) / 1MB, 0)
-            $resp = Read-Host "Navegadores abertos estao usando ~${mb} MB de RAM (e VRAM). Deseja fechar agora antes de jogar? [S/N]"
+            $resp = Read-Host "Navegadores abertos estao usando ~${mb} MB de RAM (e VRAM). Deseja fechar agora antes de iniciar? [S/N]"
             if ($resp -match '^[sS]') {
-                Stop-Process -Name $browsers -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name $BackgroundThrottleBrowsers -Force -ErrorAction SilentlyContinue
                 Write-Log "Navegadores fechados para liberar RAM e VRAM." "Green"
             }
         }
-    } elseif ($Throttle -and $CloseBrowsersAuto) {
-        Stop-Process -Name $browsers -Force -ErrorAction SilentlyContinue
+    } elseif ($Throttle -and $CloseBrowsersAuto -and $WorkloadKind -eq 'Game') {
+        Stop-Process -Name $BackgroundThrottleBrowsers -Force -ErrorAction SilentlyContinue
     }
 
-    foreach ($pName in ($browsers + $helpers)) {
+    foreach ($pName in ($BackgroundThrottleBrowsers + $BackgroundThrottleHelpers)) {
         Get-Process -Name $pName -ErrorAction SilentlyContinue | ForEach-Object {
-            try {
-                if ($_.PriorityClass -ne $targetPrio) { $_.PriorityClass = $targetPrio }
-            } catch {}
+            try { if ($_.PriorityClass -ne $targetPrio) { $_.PriorityClass = $targetPrio } } catch {}
         }
     }
 
@@ -695,33 +1460,67 @@ function Set-BackgroundAppsThrottled {
 }
 
 function Apply-PerformanceMode {
-    param($Hw, $Schemes, [switch]$Interactive, [switch]$Silent)
-    if ($Schemes.PerfGuid) {
-        powercfg /setactive $Schemes.PerfGuid | Out-Null
-    }
+    param(
+        [ValidateSet('Leve','Medio','Alto')]
+        [string]$Tier = 'Leve',
+        $Hw,
+        $Schemes,
+        [ValidateSet('Jogos','Streaming')]
+        [string]$AudioVisualPreset = 'Jogos',
+        [switch]$Interactive,
+        [switch]$Silent
+    )
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    if (-not $Schemes) { $Schemes = Get-PowerSchemeIds }
+    if ($Schemes.PerfGuid) { powercfg /setactive $Schemes.PerfGuid | Out-Null }
+
     Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
-    Invoke-AfterburnerProfile -Slot $PerfSlot
-    Ensure-DisplayContrastAndColor -SkipGammaRamp -Silent:$Silent
-    Set-BackgroundAppsThrottled -Throttle $true -Hw $Hw -InteractiveClosePrompt:$Interactive
     $plan = Get-GpuTuningPlan -Hw $Hw
-    Write-Log ("MODO DESEMPENHO ATIVADO -> Plano Maximo + Afterburner Perfil $PerfSlot (PL $($Hw.PerfPowerPct)% | UV+OC Core +$($plan.PerfCoreMHz) MHz / Mem +$($plan.PerfMemMHz) MHz).") "Green" -Silent:$Silent
+    $t = $plan.Tiers[$Tier]
+    Invoke-AfterburnerProfile -Slot $t.Slot
+
+    Apply-AudioVisualPreset -PresetMode $AudioVisualPreset -Hw $Hw -Silent:$Silent
+    Set-BackgroundAppsThrottled -Throttle $true -Hw $Hw -InteractiveClosePrompt:$Interactive -WorkloadKind $(if ($AudioVisualPreset -eq 'Streaming') { 'Streaming' } else { 'Game' })
+    Write-Log ("MODO DESEMPENHO [$($t.Name)] ATIVADO -> Afterburner Slot $($t.Slot) (PL $($t.PowerLimit)% | UV+OC Core +$($t.CoreMHz) / Mem +$($t.MemMHz) MHz) | Preset [$AudioVisualPreset].") "Green" -Silent:$Silent
 }
 
 function Apply-EconomyMode {
     param($Hw, $Schemes, [switch]$Silent)
-    if ($Schemes.EcoGuid) {
-        powercfg /setactive $Schemes.EcoGuid | Out-Null
-    }
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    if (-not $Schemes) { $Schemes = Get-PowerSchemeIds }
+    if ($Schemes.EcoGuid) { powercfg /setactive $Schemes.EcoGuid | Out-Null }
+
     Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
     Invoke-AfterburnerProfile -Slot $EcoSlot
-    Ensure-DisplayContrastAndColor -Silent:$Silent
+    Apply-AudioVisualPreset -PresetMode 'Economia' -Hw $Hw -Silent:$Silent
     Set-BackgroundAppsThrottled -Throttle $false -Hw $Hw
-    Write-Log "MODO ECONOMIA ATIVADO -> Plano Economia + Afterburner Perfil $EcoSlot (Undervolt Eficiencia | PL $($Hw.EcoPowerPct)%)." "Yellow" -Silent:$Silent
+    Write-Log "MODO ECONOMIA ATIVADO -> Plano Economia + Afterburner Slot $EcoSlot (Undervolt Eficiencia | PL $($Hw.EcoPowerPct)%)." "Yellow" -Silent:$Silent
 }
 
-function Get-DiscoveredGameExes {
-    $discovered = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($g in $KnownGameExes) { [void]$discovered.Add($g) }
+function Get-DiscoveredAppSets {
+    $games = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($g in $KnownGameExes) { [void]$games.Add($g) }
+
+    $ultra = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($u in $UltraHeavyGameExes) { [void]$ultra.Add($u) }
+
+    $stream = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($s in $StreamingExes) { [void]$stream.Add($s) }
+
+    $create = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($c in $CreationWorkExes) { [void]$create.Add($c) }
+
+    $audioC = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($a in $AudioConsoleExes) { [void]$audioC.Add($a) }
+
+    $aiW = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($ai in $AiWorkloadExes) { [void]$aiW.Add($ai) }
+
+    $upS = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($up in $UpscalerExes) { [void]$upS.Add($up) }
+
+    $ignored = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($ig in ($IgnoredExeNames + $BackgroundThrottleBrowsers + $BackgroundThrottleHelpers)) { [void]$ignored.Add($ig) }
 
     $libSubPaths = @(
         'SteamLibrary\steamapps\common',
@@ -744,26 +1543,122 @@ function Get-DiscoveredGameExes {
             if (Test-Path $base) {
                 Get-ChildItem -Path $base -Filter "*.exe" -Depth 3 -File -ErrorAction SilentlyContinue | ForEach-Object {
                     $baseName = $_.BaseName
-                    if ($IgnoredExeNames -notcontains $baseName -and $baseName -notmatch 'unins|setup|redist|crash|helper|overlay|update|launcher') {
-                        [void]$discovered.Add($baseName)
+                    if ((-not $ignored.Contains($baseName)) -and (-not $stream.Contains($baseName)) -and (-not $create.Contains($baseName)) -and $baseName -notmatch 'unins|setup|redist|crash|helper|overlay|update|launcher') {
+                        [void]$games.Add($baseName)
                     }
                 }
             }
         }
     }
-    return ,$discovered
+
+    return [PSCustomObject]@{
+        Games        = $games
+        UltraHeavy   = $ultra
+        Streaming    = $stream
+        Creation     = $create
+        AiWorkloads  = $aiW
+        Upscalers    = $upS
+        AudioConsole = $audioC
+        Ignored      = $ignored
+    }
 }
 
-function Get-ActiveHeavyGame {
-    param([System.Collections.Generic.HashSet[string]]$GameSet)
-    if (-not $GameSet) { return $null }
-    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.WorkingSet64 -gt 80MB }
+function Get-ActiveWorkloadState {
+    param($AppSets, $Config)
+    if (-not $AppSets) { return $null }
+    if (-not $Config) { $Config = Get-ModoJogoConfig }
+
+    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.WorkingSet64 -gt 35MB }
+    $gameList    = [System.Collections.Generic.List[object]]::new()
+    $streamList  = [System.Collections.Generic.List[object]]::new()
+    $createList  = [System.Collections.Generic.List[object]]::new()
+    $aiList      = [System.Collections.Generic.List[object]]::new()
+    $upscaleList = [System.Collections.Generic.List[object]]::new()
+    $audioList   = [System.Collections.Generic.List[object]]::new()
+    $otherList   = [System.Collections.Generic.List[object]]::new()
+    $hasUltra    = $false
+
     foreach ($p in $procs) {
-        if ($GameSet.Contains($p.ProcessName)) {
-            return $p.ProcessName
+        $n = $p.ProcessName
+        if ($AppSets.Streaming.Contains($n)) {
+            $streamList.Add($p)
+        } elseif ($AppSets.Games.Contains($n) -and $p.WorkingSet64 -gt 80MB) {
+            $gameList.Add($p)
+            if ($AppSets.UltraHeavy.Contains($n)) { $hasUltra = $true }
+        } elseif ($AppSets.AiWorkloads.Contains($n) -and (($n -notmatch '^python') -or $p.WorkingSet64 -gt 600MB)) {
+            $aiList.Add($p)
+        } elseif ($AppSets.Upscalers.Contains($n)) {
+            $upscaleList.Add($p)
+        } elseif ($AppSets.Creation.Contains($n) -and $p.WorkingSet64 -gt 90MB) {
+            $createList.Add($p)
+        } elseif ($AppSets.AudioConsole.Contains($n)) {
+            $audioList.Add($p)
+        } elseif ((-not $AppSets.Ignored.Contains($n)) -and $p.MainWindowHandle -ne [IntPtr]::Zero -and $p.WorkingSet64 -gt 550MB) {
+            $otherList.Add($p)
         }
     }
-    return $null
+
+    $hasGame   = ($gameList.Count -gt 0)
+    $hasStream = ($streamList.Count -gt 0)
+    $hasCreate = ($createList.Count -gt 0)
+    $hasAi     = ($aiList.Count -gt 0)
+    $hasOther  = ($otherList.Count -gt 0)
+    $needsPerf = ($hasGame -or $hasStream -or $hasCreate -or $hasAi -or $hasOther)
+
+    $avPreset = if ($hasStream -or $hasCreate) { 'Streaming' } elseif ($needsPerf) { 'Jogos' } else { 'Economia' }
+
+    $tier = $null
+    if ($needsPerf) {
+        if ($Config.AutoPerfTier -in @('Leve','Medio','Alto')) {
+            $tier = $Config.AutoPerfTier
+        } else {
+            $heavy3DCreate = ($createList | Where-Object { $_.ProcessName -in @('blender','afterfx','resolve','adobe premiere pro','premiere pro') }).Count -gt 0
+            if (($hasGame -and $hasStream) -or $hasUltra -or $hasAi -or $heavy3DCreate) {
+                $tier = 'Alto'
+            } elseif ($hasGame -or $hasStream -or $hasCreate) {
+                $tier = 'Medio'
+            } else {
+                $tier = 'Leve'
+            }
+        }
+    }
+
+    $labels = [System.Collections.Generic.List[string]]::new()
+    if ($hasGame)   { $labels.Add(($gameList | Select-Object -First 1).ProcessName) }
+    if ($hasStream) { $labels.Add(($streamList | Select-Object -First 1).ProcessName) }
+    if ($hasAi)     { $labels.Add("IA:" + ($aiList | Select-Object -First 1).ProcessName) }
+    if ($hasCreate) { $labels.Add(($createList | Select-Object -First 1).ProcessName) }
+    if ($hasOther -and -not ($hasGame -or $hasStream -or $hasCreate -or $hasAi)) { $labels.Add(($otherList | Select-Object -First 1).ProcessName) }
+
+    return [PSCustomObject]@{
+        NeedsPerf       = $needsPerf
+        Tier            = $tier
+        AVPreset        = $avPreset
+        Label           = ($labels -join ' + ')
+        GameProcs       = $gameList
+        StreamProcs     = $streamList
+        AiProcs         = $aiList
+        UpscaleProcs    = $upscaleList
+        CreateProcs     = $createList
+        AudioProcs      = $audioList
+        OtherHeavyProcs = $otherList
+        HasAudioConsole = ($audioList.Count -gt 0)
+    }
+}
+
+function Set-ActiveWorkloadsPriority {
+    param($State)
+    if (-not $State -or -not $State.NeedsPerf) { return }
+    foreach ($p in ($State.GameProcs + $State.StreamProcs + $State.UpscaleProcs)) {
+        try { if ($p.PriorityClass -ne [System.Diagnostics.ProcessPriorityClass]::High) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High } } catch {}
+    }
+    foreach ($p in ($State.CreateProcs + $State.AiProcs + $State.OtherHeavyProcs)) {
+        try {
+            if ($p.PriorityClass -eq [System.Diagnostics.ProcessPriorityClass]::Normal -or $p.PriorityClass -eq [System.Diagnostics.ProcessPriorityClass]::BelowNormal) {
+                $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal
+            }
+        } catch {}
+    }
 }
 
 function Start-GameWatcher {
@@ -772,36 +1667,49 @@ function Start-GameWatcher {
     $Schemes = Get-PowerSchemeIds
     Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
 
-    $gameSet       = Get-DiscoveredGameExes
-    $lastScan      = Get-Date
-    $inPerfMode    = $null
-    $lastGameSeen  = [DateTime]::MinValue
+    $appSets           = Get-DiscoveredAppSets
+    $lastScan          = Get-Date
+    $lastStateKey      = ''
+    $lastHeavySeen     = [DateTime]::MinValue
+    $audioConsoleSeen  = $false
 
-    Write-Log ("Monitor automatico iniciado | GPU: $($Hw.GpuName) ($($Hw.VramMB) MB) | CPU: $($Hw.CpuName) | Jogos indexados: $($gameSet.Count)") "Cyan" -Silent:$Silent
+    $cfgInit = Get-ModoJogoConfig
+    Write-Log ("Monitor automatico iniciado | GPU: $($Hw.GpuName) ($($Hw.VramMB) MB) | Modo Auto: $($cfgInit.AutoPerfTier) | Jogos/Apps indexados: $($appSets.Games.Count)") "Cyan" -Silent:$Silent
 
     while ($true) {
         if (((Get-Date) - $lastScan).TotalSeconds -ge 300) {
-            $gameSet  = Get-DiscoveredGameExes
+            $appSets  = Get-DiscoveredAppSets
             $lastScan = Get-Date
         }
 
-        $activeGame = Get-ActiveHeavyGame -GameSet $gameSet
-        if ($activeGame) {
-            $lastGameSeen = Get-Date
-            if ($inPerfMode -ne $true) {
-                Write-Log "Jogo pesado detectado ($activeGame). Alternando para MODO DESEMPENHO..." "Green" -Silent:$Silent
-                Apply-PerformanceMode -Hw $Hw -Schemes $Schemes -Silent:$Silent
-                $inPerfMode = $true
+        $cfg   = Get-ModoJogoConfig
+        $state = Get-ActiveWorkloadState -AppSets $appSets -Config $cfg
+
+        if ($state.HasAudioConsole -and -not $audioConsoleSeen) {
+            Optimize-RealtekAndAudio -PresetMode $cfg.ActiveAVPreset -Silent:$Silent
+            $audioConsoleSeen = $true
+        } elseif (-not $state.HasAudioConsole) {
+            $audioConsoleSeen = $false
+        }
+
+        if ($state.NeedsPerf) {
+            $lastHeavySeen = Get-Date
+            $targetKey = "Perf:$($state.Tier):$($state.AVPreset)"
+            if ($lastStateKey -ne $targetKey) {
+                Write-Log ("Carga detectada ($($state.Label)). Ativando Desempenho [$($state.Tier)] + Preset [$($state.AVPreset)]...") "Green" -Silent:$Silent
+                Apply-PerformanceMode -Tier $state.Tier -Hw $Hw -Schemes $Schemes -AudioVisualPreset $state.AVPreset -Silent:$Silent
+                $lastStateKey = $targetKey
             }
+            Set-ActiveWorkloadsPriority -State $state
         } else {
-            if ($null -eq $inPerfMode) {
-                Write-Log "Nenhum jogo pesado aberto na inicializacao. Aplicando MODO ECONOMIA inicial..." "Yellow" -Silent:$Silent
+            if ($lastStateKey -eq '') {
+                Write-Log "Nenhum jogo ou programa pesado aberto. Aplicando MODO ECONOMIA inicial..." "Yellow" -Silent:$Silent
                 Apply-EconomyMode -Hw $Hw -Schemes $Schemes -Silent:$Silent
-                $inPerfMode = $false
-            } elseif ($inPerfMode -eq $true -and (((Get-Date) - $lastGameSeen).TotalSeconds -ge $EcoGraceSec)) {
-                Write-Log "Nenhum jogo pesado em execucao. Alternando para MODO ECONOMIA..." "Yellow" -Silent:$Silent
+                $lastStateKey = 'Eco'
+            } elseif ($lastStateKey -ne 'Eco' -and (((Get-Date) - $lastHeavySeen).TotalSeconds -ge $EcoGraceSec)) {
+                Write-Log "Programas pesados encerrados. Alternando para MODO ECONOMIA..." "Yellow" -Silent:$Silent
                 Apply-EconomyMode -Hw $Hw -Schemes $Schemes -Silent:$Silent
-                $inPerfMode = $false
+                $lastStateKey = 'Eco'
             }
         }
         Start-Sleep -Seconds $PollIntervalSec
@@ -831,7 +1739,17 @@ function Install-AutoStartTask {
     Start-ScheduledTask -TaskName $TaskName
 
     Write-Log "Automacao instalada e iniciada em segundo plano (Tarefa Agendada: $TaskName)." "Green"
-    Write-Log "Sempre que voce abrir jogos pesados (como CS2), o PC ira para DESEMPENHO e voltara para ECONOMIA ao fechar." "Gray"
+    Write-Log "Jogos, OBS, edicao e apps pesados alternam automaticamente entre Leve/Medio/Alto e Economia." "Gray"
+}
+
+function Restore-ModojogoBackupsInDir {
+    param([string]$RootDir, [switch]$Recurse)
+    if (-not $RootDir -or -not (Test-Path $RootDir)) { return }
+    Get-ChildItem $RootDir -Filter "*.bak_modojogo" -Recurse:$Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        $orig = $_.FullName -replace '\.bak_modojogo$', ''
+        Copy-Item $_.FullName $orig -Force -ErrorAction SilentlyContinue
+        Write-Log "Backup restaurado: $orig" "Gray"
+    }
 }
 
 function Uninstall-AutoStartTask {
@@ -845,16 +1763,24 @@ function Uninstall-AutoStartTask {
 
     $ab = Find-Afterburner
     if ($ab -and (Test-Path $ab.ProfilesDir)) {
-        foreach ($mk in @(".modojogo_profiles_v1", ".modojogo_profiles_v2")) {
+        foreach ($mk in @(".modojogo_profiles_v1", ".modojogo_profiles_v2", ".modojogo_profiles_v3", ".modojogo_profiles_v4")) {
             $markerFile = Join-Path $ab.ProfilesDir $mk
             if (Test-Path $markerFile) { Remove-Item $markerFile -Force }
         }
-        Get-ChildItem $ab.ProfilesDir -Filter "*.bak_modojogo" | ForEach-Object {
-            $orig = $_.FullName -replace '\.bak_modojogo$', ''
-            Copy-Item $_.FullName $orig -Force
-            Write-Log "Backup restaurado: $orig" "Gray"
+        Restore-ModojogoBackupsInDir -RootDir $ab.ProfilesDir
+    }
+    Restore-ModojogoBackupsInDir -RootDir (Join-Path $env:APPDATA "obs-studio") -Recurse
+    Restore-ModojogoBackupsInDir -RootDir (Join-Path $env:APPDATA "discord")
+    Restore-ModojogoBackupsInDir -RootDir (Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Overwatch\Settings")
+    foreach ($pf in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+        if ($pf) { Restore-ModojogoBackupsInDir -RootDir (Join-Path $pf "Steam\userdata") -Recurse }
+    }
+    Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' } | ForEach-Object {
+        foreach ($sub in @('Program Files (x86)\Steam\steamapps\common\wallpaper_engine','SteamLibrary\steamapps\common\wallpaper_engine')) {
+            Restore-ModojogoBackupsInDir -RootDir (Join-Path $_.Root $sub)
         }
     }
+
     if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue }
     Write-Log "Automacao removida e backups originais restaurados." "Green"
 }
@@ -864,20 +1790,35 @@ function Show-Diagnostics {
     $Schemes = Get-PowerSchemeIds
     $ab      = Find-Afterburner
     $plan    = Get-GpuTuningPlan -Hw $Hw
-    $games   = Get-DiscoveredGameExes
+    $cfg     = Get-ModoJogoConfig
+    $appSets = Get-DiscoveredAppSets
+    $ups     = Find-ExistingUpscalers
     $task    = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $mmUser  = Get-ItemProperty 'HKCU:\Software\Microsoft\Multimedia\Audio' -ErrorAction SilentlyContinue
+    $obsProf = Join-Path $env:APPDATA 'obs-studio\basic\profiles'
+    $cudaLaz = [Environment]::GetEnvironmentVariable('CUDA_MODULE_LOADING','User')
+    $ptAlloc = [Environment]::GetEnvironmentVariable('PYTORCH_CUDA_ALLOC_CONF','User')
 
-    Write-Host "`n=== DIAGNOSTICO DO HARDWARE ATUAL ===" -ForegroundColor Cyan
+    Write-Host "`n=== DIAGNOSTICO DO HARDWARE, FSR, SDXL E AUTOMACAO ===" -ForegroundColor Cyan
     Write-Host (" CPU      : {0} ({1} nucleos / {2} threads)" -f $Hw.CpuName, $Hw.CpuCores, $Hw.CpuThreads)
     Write-Host (" RAM      : {0} GB livres / {1} GB totais" -f $Hw.RamFreeGB, $Hw.RamTotalGB)
-    Write-Host (" Tipo PC  : {0}" -f $(if ($Hw.IsLaptop) { "Notebook (Bateria)" } else { "Desktop" }))
+    Write-Host (" Tipo PC  : {0} | Monitor: {1}x{2} @ {3}Hz" -f $(if ($Hw.IsLaptop) { "Notebook (Bateria)" } else { "Desktop" }), $Hw.DisplayW, $Hw.DisplayH, $Hw.DisplayHz)
     Write-Host (" GPU      : {0} ({1} | {2} MB VRAM{3})" -f $Hw.GpuName, $Hw.GpuVendor, $Hw.VramMB, $(if ($Hw.GpuTempC) { " | $($Hw.GpuTempC) C" } else { "" }))
-    Write-Host (" Calibr.  : Desempenho (Slot $PerfSlot) = PL {0}% + Undervolt + Leve OC (+{1} MHz Core / +{2} MHz Mem)" -f $Hw.PerfPowerPct, $plan.PerfCoreMHz, $plan.PerfMemMHz)
-    Write-Host ("          : Economia   (Slot $EcoSlot) = PL {0}% + Undervolt Eficiencia (+{1} MHz curvatura base)" -f $Hw.EcoPowerPct, $plan.EcoBoostMHz)
+    Write-Host (" Upscaler : {0}" -f $(if ($Hw.NoTensorCores) { "Sem Tensor Cores -> AMD FSR 1/2/3 + OptiScaler/Magpie recomendado" } else { "Tensor Cores + AMD FSR suportados" }))
+    Write-Host (" Tools UP : Lossless={0} | Magpie={1} | OptiScaler={2}" -f $(if ($ups.LosslessScaling) {"OK"} else {"Nao"}), $(if ($ups.Magpie) {"OK"} else {"Nao"}), $(if ($ups.OptiScaler) {"OK"} else {"Nao"}))
+    Write-Host (" SDXL Env : CUDA_MODULE_LOADING={0} | PYTORCH_CUDA_ALLOC_CONF={1}" -f $(if ($cudaLaz) {$cudaLaz} else {"(padrao)"}), $(if ($ptAlloc) {$ptAlloc} else {"(padrao)"}))
+    foreach ($tk in @('Leve','Medio','Alto')) {
+        $t = $plan.Tiers[$tk]
+        Write-Host (" Perfil   : {0,-6} (Slot {1}) -> PL {2}% | Undervolt + OC (+{3} Core / +{4} Mem MHz)" -f $t.Name, $t.Slot, $t.PowerLimit, $t.CoreMHz, $t.MemMHz)
+    }
+    Write-Host (" Economia : Eco    (Slot {0}) -> PL {1}% | Undervolt Eficiencia (+{2} MHz base)" -f $EcoSlot, $Hw.EcoPowerPct, $plan.EcoBoostMHz)
+    Write-Host (" Config   : Nivel Auto = {0} | Predefinicao Audio/Imagem = {1}" -f $cfg.AutoPerfTier, $cfg.ActiveAVPreset)
     Write-Host (" Energia  : GUID Desempenho = $($Schemes.PerfGuid) | GUID Economia = $($Schemes.EcoGuid)")
     Write-Host (" Afterb.  : {0}" -f $(if ($ab) { $ab.ExePath } else { "Nao encontrado" }))
+    Write-Host (" OBS      : {0}" -f $(if (Test-Path $obsProf) { ((Get-ChildItem $obsProf -Directory | Select-Object -ExpandProperty Name) -join ', ') } else { "Nao instalado" }))
+    Write-Host (" Audio    : MonoMix={0} | Ducking={1} (0=Estereo, 3=Sem reduzir volume)" -f $mmUser.AccessibilityMonoMixState, $mmUser.UserDuckingPreference)
     Write-Host (" Automacao: {0}" -f $(if ($task) { "$TaskName ($($task.State))" } else { "Nao instalada" }))
-    Write-Host (" Jogos DB : {0} executaveis detectados (lista + bibliotecas locais)" -f $games.Count)
+    Write-Host (" Apps DB  : {0} jogos | {1} streaming | {2} edicao/DAW | {3} IA/SDXL" -f $appSets.Games.Count, $appSets.Streaming.Count, $appSets.Creation.Count, $appSets.AiWorkloads.Count)
     foreach ($d in $Hw.Disks) {
         Write-Host (" Disco    : {0} [{1}, {2} GB]" -f $d.FriendlyName, $d.MediaType, $d.GB) -ForegroundColor Gray
     }
@@ -887,11 +1828,26 @@ function Show-Diagnostics {
 # === ROTEAMENTO DE EXECUCAO ===
 $argNorm = ($env:MODOJOGO_ARGS + "").Trim().ToLower()
 switch ($argNorm) {
-    "-auto"       { Start-GameWatcher -Silent; exit 0 }
-    "-monitor"    { Start-GameWatcher; exit 0 }
-    "-desempenho" { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Hw $Hw -Schemes $S; exit 0 }
-    "-economia"   { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-EconomyMode -Hw $Hw -Schemes $S; exit 0 }
-    "-corrigircor" { Ensure-DisplayContrastAndColor; exit 0 }
+    "-auto"         { Start-GameWatcher -Silent; exit 0 }
+    "-monitor"      { Start-GameWatcher; exit 0 }
+    "-leve"         { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Leve'  -Hw $Hw -Schemes $S; exit 0 }
+    "-desempenho"   { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Leve'  -Hw $Hw -Schemes $S; exit 0 }
+    "-medio"        { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Medio' -Hw $Hw -Schemes $S; exit 0 }
+    "-alto"         { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Alto'  -Hw $Hw -Schemes $S; exit 0 }
+    "-economia"     { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-EconomyMode -Hw $Hw -Schemes $S; exit 0 }
+    "-presetjogos"  { $Hw = Get-HardwareProfile; Apply-AudioVisualPreset -PresetMode 'Jogos'     -Hw $Hw -FullCalibrate; exit 0 }
+    "-presetstream" { $Hw = Get-HardwareProfile; Apply-AudioVisualPreset -PresetMode 'Streaming' -Hw $Hw -FullCalibrate; exit 0 }
+    "-fsr"          { $Hw = Get-HardwareProfile; Optimize-AmdFsrAndUpscaling -Hw $Hw; exit 0 }
+    "-instalarfsr"  { $Hw = Get-HardwareProfile; Optimize-AmdFsrAndUpscaling -Hw $Hw; Install-FsrToolchain -Hw $Hw; exit 0 }
+    "-sdxl"         { $Hw = Get-HardwareProfile; Optimize-SdxlAndAiEnvironment -Hw $Hw; exit 0 }
+    "-calibrar"     {
+        $Hw = Get-HardwareProfile
+        Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
+        Apply-AudioVisualPreset -PresetMode 'Jogos' -Hw $Hw -FullCalibrate
+        Optimize-OtherPcPrograms -Hw $Hw
+        exit 0
+    }
+    "-corrigircor"  { Ensure-DisplayContrastAndColor; exit 0 }
 }
 
 $Hw      = Get-HardwareProfile
@@ -899,21 +1855,29 @@ $Schemes = Get-PowerSchemeIds
 $Plan    = Get-GpuTuningPlan -Hw $Hw
 
 while ($true) {
+    $cfgCur = Get-ModoJogoConfig
+    $tL = $Plan.Tiers['Leve']; $tM = $Plan.Tiers['Medio']; $tA = $Plan.Tiers['Alto']
     Clear-Host
-    Write-Host "============================================================================" -ForegroundColor Cyan
-    Write-Host "     MODO JOGO AUTOMATICO (HARDWARE-AWARE + UNDERVOLT / LEVE OVERCLOCK)" -ForegroundColor Cyan
-    Write-Host "============================================================================" -ForegroundColor Cyan
-    Write-Host (" Hardware : {0} | {1} GB RAM | {2} ({3} MB VRAM)" -f $Hw.CpuName, $Hw.RamTotalGB, $Hw.GpuName, $Hw.VramMB) -ForegroundColor Gray
-    Write-Host (" Desemp.  : Slot $PerfSlot | PL {0}% | Undervolt + Leve OC (+{1} Core / +{2} Mem MHz)" -f $Hw.PerfPowerPct, $Plan.PerfCoreMHz, $Plan.PerfMemMHz) -ForegroundColor Gray
-    Write-Host (" Economia : Slot $EcoSlot | PL {0}% | Undervolt de Eficiencia (+{1} Core base MHz)" -f $Hw.EcoPowerPct, $Plan.EcoBoostMHz) -ForegroundColor Gray
-    Write-Host "----------------------------------------------------------------------------"
-    Write-Host " [1] Calibrar Perfis Afterburner (UV + OC) + Ativar MODO DESEMPENHO agora"
-    Write-Host " [2] Calibrar Perfis Afterburner (UV)      + Ativar MODO ECONOMIA agora"
-    Write-Host " [3] Iniciar Monitor Automatico nesta janela (detecta jogos ao abrir/fechar)"
-    Write-Host " [4] Instalar Automacao no Windows (roda oculto ao ligar o PC)"
-    Write-Host " [5] Desinstalar Automacao e restaurar backups do MSI Afterburner"
-    Write-Host " [6] Exibir Diagnostico Completo das Pecas e Status"
-    Write-Host " [7] Corrigir Contraste / Filtro Branco (RGB Full 0-255, Gama 1.0 e DDC)"
+    Write-Host "================================================================================" -ForegroundColor Cyan
+    Write-Host "  MODO JOGO AUTOMATICO - 4 PERFIS UV/OC + OBS + REALTEK + AMD FSR + SDXL" -ForegroundColor Cyan
+    Write-Host "================================================================================" -ForegroundColor Cyan
+    Write-Host (" Hardware : {0} | {1} GB RAM | {2} ({3} MB | {4}x{5}@{6}Hz)" -f $Hw.CpuName, $Hw.RamTotalGB, $Hw.GpuName, $Hw.VramMB, $Hw.DisplayW, $Hw.DisplayH, $Hw.DisplayHz) -ForegroundColor Gray
+    Write-Host (" S$SlotLeve Leve  : +{0}/+{1} MHz (PL {2}%) | S$SlotMedio Medio: +{3}/+{4} (PL {5}%) | S$SlotAlto Alto: +{6}/+{7} (PL {8}%)" -f $tL.CoreMHz, $tL.MemMHz, $tL.PowerLimit, $tM.CoreMHz, $tM.MemMHz, $tM.PowerLimit, $tA.CoreMHz, $tA.MemMHz, $tA.PowerLimit) -ForegroundColor Gray
+    Write-Host (" S$EcoSlot Eco   : +{0} base MHz (PL {1}%) | Auto: {2} | Preset: {3} | FSR: {4}" -f $Plan.EcoBoostMHz, $Hw.EcoPowerPct, $cfgCur.AutoPerfTier, $cfgCur.ActiveAVPreset, $(if ($Hw.NoTensorCores) {"FSR+OptiScaler"} else {"DLSS+FSR"})) -ForegroundColor Gray
+    Write-Host "--------------------------------------------------------------------------------"
+    Write-Host " [1] Calibrar Tudo (4 Perfis + OBS + Realtek + FSR/Jogos + SDXL) & Ativar LEVE"
+    Write-Host " [2] Ativar DESEMPENHO MEDIO     (Undervolt + Overclock Medio  | Slot $SlotMedio)"
+    Write-Host " [3] Ativar DESEMPENHO ALTO      (Undervolt + Overclock Alto   | Slot $SlotAlto)"
+    Write-Host " [4] Ativar MODO ECONOMIA        (Undervolt Eficiencia + Eco   | Slot $EcoSlot)"
+    Write-Host " [5] Predefinicoes Audio/Imagem  (Jogos vs Streaming -> Realtek, OBS, Tela, Apps)"
+    Write-Host " [6] Configurar Nivel Automatico (Auto Inteligente vs Fixo Leve/Medio/Alto)"
+    Write-Host " [7] Iniciar Monitor Automatico nesta janela (jogos, OBS, IA/SDXL e apps)"
+    Write-Host " [8] Instalar Automacao no Windows (roda oculto ao ligar o PC)"
+    Write-Host " [9] Desinstalar Automacao e restaurar backups originais"
+    Write-Host " [10] Corrigir Contraste / Filtro Branco (RGB Full 0-255, Gama 1.0 e DDC)"
+    Write-Host " [11] Exibir Diagnostico Completo (Pecas, 4 Perfis, Audio, OBS, FSR e SDXL)"
+    Write-Host " [12] AMD FSR Universal + Jogos  (Calibrar CS2/OW + Instalar Magpie & OptiScaler)"
+    Write-Host " [13] Otimizacoes SDXL & IA      (CUDA Lazy, PyTorch Low-VRAM e Launchers WebUI)"
     Write-Host " [0] Sair"
     Write-Host ""
     $op = Read-Host "Escolha uma opcao"
@@ -921,35 +1885,93 @@ while ($true) {
     switch ($op) {
         "1" {
             Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
-            Apply-PerformanceMode -Hw $Hw -Schemes $Schemes -Interactive
+            Optimize-OtherPcPrograms -Hw $Hw
+            Apply-AudioVisualPreset -PresetMode 'Jogos' -Hw $Hw -FullCalibrate
+            Apply-PerformanceMode -Tier 'Leve' -Hw $Hw -Schemes $Schemes -AudioVisualPreset 'Jogos' -Interactive
             Pause
         }
         "2" {
-            Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
-            Apply-EconomyMode -Hw $Hw -Schemes $Schemes
+            Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
+            $av = Read-Host "Predefinicao [J] Jogos (padrao) ou [S] Streaming/Edicao"
+            $avMode = if ($av -match '^[sS]') { 'Streaming' } else { 'Jogos' }
+            Apply-PerformanceMode -Tier 'Medio' -Hw $Hw -Schemes $Schemes -AudioVisualPreset $avMode -Interactive
             Pause
         }
         "3" {
+            Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
+            $av = Read-Host "Predefinicao [J] Jogos (padrao) ou [S] Streaming/Edicao"
+            $avMode = if ($av -match '^[sS]') { 'Streaming' } else { 'Jogos' }
+            Apply-PerformanceMode -Tier 'Alto' -Hw $Hw -Schemes $Schemes -AudioVisualPreset $avMode -Interactive
+            Pause
+        }
+        "4" {
+            Ensure-AfterburnerProfiles -Hw $Hw | Out-Null
+            Apply-EconomyMode -Hw $Hw -Schemes $Schemes
+            Pause
+        }
+        "5" {
+            Write-Host "`n [1] Predefinicao JOGOS (Realtek 48kHz Estereo, OBS Baixa Latencia, RGB Full)" -ForegroundColor Cyan
+            Write-Host " [2] Predefinicao STREAMING / EDICAO (Realtek 48kHz Estereo, OBS HQ + Audio 320k, RGB Full)" -ForegroundColor Cyan
+            Write-Host " [3] Calibrar Todos os Programas apenas (OBS + Realtek + Discord + Wallpaper + Steam)" -ForegroundColor Cyan
+            $sub = Read-Host "Escolha"
+            if ($sub -eq "2") {
+                Apply-AudioVisualPreset -PresetMode 'Streaming' -Hw $Hw -FullCalibrate
+            } elseif ($sub -eq "3") {
+                Optimize-RealtekAndAudio -PresetMode $cfgCur.ActiveAVPreset -AllowRestartAudio
+                Optimize-ObsStudio -Hw $Hw -PresetMode $cfgCur.ActiveAVPreset -ForceProfileUpdate
+                Optimize-OtherPcPrograms -Hw $Hw
+            } else {
+                Apply-AudioVisualPreset -PresetMode 'Jogos' -Hw $Hw -FullCalibrate
+            }
+            Pause
+        }
+        "6" {
+            Write-Host "`n [A] Auto Inteligente (Leve=Apps pesados | Medio=Jogos/OBS | Alto=AAA/Live+IA/SDXL)" -ForegroundColor Cyan
+            Write-Host " [L] Fixar automatico em LEVE  |  [M] Fixar em MEDIO  |  [T] Fixar em ALTO" -ForegroundColor Cyan
+            $tChoice = (Read-Host "Escolha [A/L/M/T]").Trim().ToUpper()
+            $newTier = switch ($tChoice) {
+                'L' { 'Leve' }
+                'M' { 'Medio' }
+                'T' { 'Alto' }
+                default { 'Auto' }
+            }
+            [void](Save-ModoJogoConfig -AutoPerfTier $newTier)
+            Write-Log "Nivel automatico salvo como: $newTier" "Green"
+            Pause
+        }
+        "7" {
             Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
             Write-Host "`nMonitor ativo! Pressione Ctrl+C para encerrar ou feche esta janela.`n" -ForegroundColor Green
             Start-GameWatcher
         }
-        "4" {
+        "8" {
             Ensure-AfterburnerProfiles -Hw $Hw -ForceOverwrite | Out-Null
+            Optimize-OtherPcPrograms -Hw $Hw
+            Apply-AudioVisualPreset -PresetMode 'Jogos' -Hw $Hw -FullCalibrate
             Install-AutoStartTask
             Pause
         }
-        "5" {
+        "9" {
             Uninstall-AutoStartTask
             Pause
         }
-        "6" {
+        "10" {
+            Ensure-DisplayContrastAndColor
+            Write-Log "Verificacao de contraste, gama linear 1.0, RGB Full 0-255 e DDC concluida." "Green"
+            Pause
+        }
+        "11" {
             Show-Diagnostics
             Pause
         }
-        "7" {
-            Ensure-DisplayContrastAndColor
-            Write-Log "Verificacao de contraste, gama linear 1.0, RGB Full 0-255 e DDC concluida." "Green"
+        "12" {
+            Optimize-AmdFsrAndUpscaling -Hw $Hw
+            $ansFsr = Read-Host "`nDeseja baixar/instalar agora Magpie (FSR 1.0 Universal) e OptiScaler (DLSS->FSR 2/3) do GitHub oficial? [S/N]"
+            if ($ansFsr -match '^[sS]') { Install-FsrToolchain -Hw $Hw }
+            Pause
+        }
+        "13" {
+            Optimize-SdxlAndAiEnvironment -Hw $Hw
             Pause
         }
         "0" { exit 0 }
