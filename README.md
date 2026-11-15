@@ -87,13 +87,13 @@ Execute **`Modo_Jogo_Automatico.bat`** como Administrador e escolha:
 * **`[12]`** **AMD FSR Universal + Jogos** (calibrar CS2/Overwatch + instalar Magpie & OptiScaler)
 * **`[13]`** **Otimizações SDXL & IA** (variáveis CUDA Lazy, PyTorch Low-VRAM e launchers WebUI/ComfyUI)
 * **`[14]`** **Reparar Erros do Windows** (ASPM, Drivers Órfãos, WMI, HVCI 124, Drivers PCI WU, Boot NTFS seguro & DISM/SFC)
-* **`[15]`** **Verificar & Atualizar Online por Hardware** *(Auto-atualiza o próprio `.bat` via GitHub com verificação de sintaxe AST + atualiza ferramentas de **AMD FSR / Magpie**, **DSL / OptiScaler + DirectStorage**, **SDXL / IA (`ComfyUI`, `Forge`, `A1111`, `PyTorch`)** e drivers PCI/GPU de acordo com as peças detectadas no momento; o monitor `-auto` também verifica automaticamente a cada `24h` em idle)*
+* **`[15]`** **Verificar & Atualizar Online** *(Hardware-Aware: re-verifica CPU/RAM/GPU/VRAM/SSD e atualiza Código `.bat` com validação AST, Drivers PnP, AMD FSR `Magpie`/`OptiScaler`, `DirectStorage` DSL & `SDXL/IA` + verificação automática a cada 24h em modo ocioso)*
 
 ### Parâmetros diretos via CMD / Atalho
 ```cmd
 Modo_Jogo_Automatico.bat -calibrar
-Modo_Jogo_Automatico.bat -atualizar
-Modo_Jogo_Automatico.bat -verificar
+Modo_Jogo_Automatico.bat -checkupdate  (Verifica online versoes x hardware sem alterar arquivos)
+Modo_Jogo_Automatico.bat -atualizar    (Atualiza codigo .bat + Magpie/OptiScaler/DirectStorage/SDXL/Drivers)
 Modo_Jogo_Automatico.bat -leve
 Modo_Jogo_Automatico.bat -medio
 Modo_Jogo_Automatico.bat -boost
@@ -121,10 +121,10 @@ title Modo Jogo Automatico - Hardware-Aware + Perfis MSI Afterburner
 set "MODOJOGO_ARGS=%~1"
 set "MODOJOGO_SELF=%~f0"
 
-:: Se nao foi chamado em modo monitor silencioso ou check, verifica elevacao de Administrador
+:: Se nao foi chamado em modo monitor silencioso ou check rapido online, verifica elevacao de Administrador
 if /i "%MODOJOGO_ARGS%"=="-auto" goto :RunPS
 if /i "%MODOJOGO_ARGS%"=="-monitor" goto :RunPS
-if /i "%MODOJOGO_ARGS%"=="-verificar" goto :RunPS
+if /i "%MODOJOGO_ARGS%"=="-checkupdate" goto :RunPS
 
 net session >nul 2>&1
 if %errorLevel% neq 0 (
@@ -139,8 +139,19 @@ if %errorLevel% neq 0 (
 
 :RunPS
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$lines = [System.IO.File]::ReadAllLines($env:MODOJOGO_SELF, [System.Text.Encoding]::UTF8); $idx = [Array]::IndexOf($lines, ':: === INICIO_POWERSHELL ==='); $code = $lines[($idx+1)..($lines.Length-1)] -join [Environment]::NewLine; & ([ScriptBlock]::Create($code))" & exit /b
+
 :: === INICIO_POWERSHELL ===
 $ErrorActionPreference = 'SilentlyContinue'
+
+# ============================================================================
+# MODO JOGO AUTOMATICO - Google Gemini (Nivel Maximo / XHigh)
+# VERSAO E AUTO-ATUALIZACAO ONLINE (Hardware-Aware)
+# ============================================================================
+$ScriptVersion      = '6.0.0'
+$UpstreamOwner      = 'Pele-osso'
+$UpstreamRepo       = 'Modo-Jogo-Automatico-Windows-e-MSI-Afterburner'
+$UpstreamFile       = 'Modo_Jogo_Automatico.bat'
+$AutoCheckUpdates   = $true
 
 # ============================================================================
 # CONFIGURACOES OPCIONAIS DO USUARIO (0 = Automatico e 100% seguro via hardware)
@@ -157,17 +168,13 @@ $AutoFixContrast    = $true  # $true corrige automaticamente filtro branco/contr
 $AutoOptimizeApps   = $true  # $true otimiza OBS, Realtek/Audio, Discord, Wallpaper Engine e apps pesados
 $PollIntervalSec    = 4      # Intervalo de verificacao do monitor automatico (segundos)
 $EcoGraceSec        = 12     # Tempo apos fechar jogos/programas pesados antes de ir para Economia
-$CloseBrowsersAuto   = $false # $true fecha navegadores em modo automatico; $false apenas reduz prioridade
-$AutoCheckUpdates    = $true  # $true verifica atualizacoes online a cada 24h em idle (codigo + FSR/DSL/SDXL/IA/drivers)
-$UpdateCheckHours    = 24     # Intervalo minimo (horas) entre verificacoes automaticas em segundo plano
-$DefaultUpdateRawUrl = 'https://raw.githubusercontent.com/Pele-osso/Modo-Jogo-Automatico-Windows-e-MSI-Afterburner/main/Modo_Jogo_Automatico.bat'
+$CloseBrowsersAuto  = $false # $true fecha navegadores em modo automatico; $false apenas reduz prioridade
 # ============================================================================
 
-$TaskName        = "ModoJogoAutomatico_MSIAfterburner"
-$InstallDir      = Join-Path $env:ProgramData "ModoJogoAutomatico"
-$ConfigFile      = Join-Path $InstallDir "config.json"
-$UpdateStateFile = Join-Path $InstallDir "update_state.json"
-$LogFile         = Join-Path $env:TEMP "ModoJogoAutomatico.log"
+$TaskName    = "ModoJogoAutomatico_MSIAfterburner"
+$InstallDir  = Join-Path $env:ProgramData "ModoJogoAutomatico"
+$ConfigFile  = Join-Path $InstallDir "config.json"
+$LogFile     = Join-Path $env:TEMP "ModoJogoAutomatico.log"
 
 $KnownGameExes = @(
     'cs2','csgo','valorant','valorant-win64-shipping','fortniteclient-win64-shipping',
@@ -226,9 +233,10 @@ $IgnoredExeNames = @(
 
 function Get-ModoJogoConfig {
     $cfg = [PSCustomObject]@{
-        AutoPerfTier   = $DefaultAutoTier
-        ActiveAVPreset = 'Jogos'
-        UpdateRawUrl   = ''
+        AutoPerfTier       = $DefaultAutoTier
+        ActiveAVPreset     = 'Jogos'
+        AutoCheckUpdates   = $AutoCheckUpdates
+        LastUpdateCheckUtc = ''
     }
     if (Test-Path $ConfigFile) {
         try {
@@ -236,19 +244,26 @@ function Get-ModoJogoConfig {
             if ($raw.AutoPerfTier -eq 'Alto') { $cfg.AutoPerfTier = 'Boost' }
             elseif ($raw.AutoPerfTier -in @('Auto','Leve','Medio','Boost')) { $cfg.AutoPerfTier = $raw.AutoPerfTier }
             if ($raw.ActiveAVPreset -in @('Jogos','Streaming','Economia')) { $cfg.ActiveAVPreset = $raw.ActiveAVPreset }
-            if ($raw.UpdateRawUrl) { $cfg.UpdateRawUrl = ($raw.UpdateRawUrl + '').Trim() }
+            if ($null -ne $raw.AutoCheckUpdates) { $cfg.AutoCheckUpdates = [bool]$raw.AutoCheckUpdates }
+            if ($raw.LastUpdateCheckUtc) { $cfg.LastUpdateCheckUtc = [string]$raw.LastUpdateCheckUtc }
         } catch {}
     }
     return $cfg
 }
 
 function Save-ModoJogoConfig {
-    param([string]$AutoPerfTier, [string]$ActiveAVPreset, [string]$UpdateRawUrl)
+    param(
+        [string]$AutoPerfTier,
+        [string]$ActiveAVPreset,
+        [nullable[bool]]$AutoCheckUpdatesParam = $null,
+        [string]$LastUpdateCheckUtc
+    )
     $cur = Get-ModoJogoConfig
     if ($AutoPerfTier -eq 'Alto') { $AutoPerfTier = 'Boost' }
     if ($AutoPerfTier -in @('Auto','Leve','Medio','Boost')) { $cur.AutoPerfTier = $AutoPerfTier }
     if ($ActiveAVPreset -in @('Jogos','Streaming','Economia')) { $cur.ActiveAVPreset = $ActiveAVPreset }
-    if ($UpdateRawUrl) { $cur.UpdateRawUrl = $UpdateRawUrl.Trim() }
+    if ($null -ne $AutoCheckUpdatesParam) { $cur.AutoCheckUpdates = [bool]$AutoCheckUpdatesParam }
+    if ($PSBoundParameters.ContainsKey('LastUpdateCheckUtc')) { $cur.LastUpdateCheckUtc = $LastUpdateCheckUtc }
     try {
         if (-not (Test-Path $InstallDir)) { New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null }
         ($cur | ConvertTo-Json) | Set-Content -Path $ConfigFile -Encoding UTF8
@@ -1387,196 +1402,177 @@ function Optimize-AmdFsrAndUpscaling {
     Write-Log "AMD FSR & Upscaling: $calSummary | $archNote | Ferramentas: $upText" "Cyan" -Silent:$Silent
 }
 
-function Get-NormalizedTextHash {
-    param([string]$Text)
-    if ($null -eq $Text) { return '' }
-    $norm = ($Text -replace "(\r\n|\r|\n)", "`n").TrimEnd("`r", "`n")
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($norm)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        return ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
-    } finally {
-        $sha.Dispose()
-    }
-}
-
-function Test-PowerShellBatSyntax {
-    param([string]$BatText)
-    if ([string]::IsNullOrWhiteSpace($BatText) -or $BatText.Length -lt 4000) { return $false }
-    if ($BatText -notmatch ':: === INICIO_POWERSHELL ===') { return $false }
-    $lines = $BatText -split "\r?\n"
-    $idx = [Array]::IndexOf($lines, ':: === INICIO_POWERSHELL ===')
-    if ($idx -lt 0 -or $idx -ge ($lines.Length - 2)) { return $false }
-    $psCode = $lines[($idx + 1)..($lines.Length - 1)] -join "`n"
-    $errs = $null
-    [void][System.Management.Automation.Language.Parser]::ParseInput($psCode, [ref]$null, [ref]$errs)
-    return ($null -eq $errs -or $errs.Count -eq 0)
-}
-
-function Get-GitHubLatestRelease {
-    param([string]$Repo, [string]$AssetRegex = '\.(zip|7z)$')
-    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
-    $headers = @{ 'User-Agent' = 'HardwareAwareUpdater'; 'Cache-Control' = 'no-cache' }
-    $tag = $null
-    $assets = @()
-    $relUrl = "https://github.com/$Repo/releases/latest"
-    try {
-        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 15
-        if ($rel -and $rel.tag_name) {
-            $tag = ($rel.tag_name + '').Trim()
-            if ($rel.assets) { $assets = @($rel.assets) }
-            if ($rel.html_url) { $relUrl = $rel.html_url }
-        }
-    } catch {
-        try {
-            $resp = Invoke-WebRequest -Uri $relUrl -Headers $headers -MaximumRedirection 5 -UseBasicParsing -TimeoutSec 15
-            $finalUri = if ($resp.BaseResponse -and $resp.BaseResponse.ResponseUri) { $resp.BaseResponse.ResponseUri.AbsoluteUri } else { '' }
-            if ($finalUri -match '/releases/tag/([^/?#]+)') {
-                $tag = [Uri]::UnescapeDataString($Matches[1]).Trim()
-                $relUrl = $finalUri
-            }
-        } catch {}
-    }
-    $sel = $null
-    if ($assets.Count -gt 0 -and $AssetRegex) {
-        $sel = $assets | Where-Object { $_.name -match $AssetRegex } | Select-Object -First 1
-        if (-not $sel) { $sel = $assets | Where-Object { $_.name -match '\.(zip|7z)$' } | Select-Object -First 1 }
-    }
-    return [PSCustomObject]@{
-        Repo        = $Repo
-        TagName     = $tag
-        AssetName   = if ($sel) { $sel.name } else { $null }
-        DownloadUrl = if ($sel) { $sel.browser_download_url } else { $null }
-        ReleaseUrl  = $relUrl
-        Assets      = $assets
-    }
-}
-
 function Expand-ArchiveSmart {
     param([string]$ArchivePath, [string]$DestDir)
-    if (-not (Test-Path $ArchivePath)) { return $false }
-    New-Item -Path $DestDir -ItemType Directory -Force | Out-Null
-    if ($ArchivePath -match '\.zip$') {
-        Expand-Archive -Path $ArchivePath -DestinationPath $DestDir -Force
+    if (-not (Test-Path $DestDir)) { New-Item -Path $DestDir -ItemType Directory -Force | Out-Null }
+    if ($ArchivePath -match '\.(zip|nupkg)$') {
+        $tmpZip = $ArchivePath
+        $createdCopy = $false
+        if ($ArchivePath -match '\.nupkg$') {
+            $tmpZip = "$ArchivePath.zip"
+            Copy-Item -Path $ArchivePath -Destination $tmpZip -Force
+            $createdCopy = $true
+        }
+        Expand-Archive -Path $tmpZip -DestinationPath $DestDir -Force
+        if ($createdCopy) { Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue }
         return $true
     }
     $sevenZ = @((Join-Path $env:ProgramFiles '7-Zip\7z.exe'), (Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe')) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($sevenZ) {
-        & $sevenZ x $ArchivePath "-o$DestDir" -y 2>$null | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        & $sevenZ x "`"$ArchivePath`"" "`"-o$DestDir`"" -y 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { return $true }
     }
     if (Get-Command tar -ErrorAction SilentlyContinue) {
         & tar -xf $ArchivePath -C $DestDir 2>$null
-        return ($LASTEXITCODE -eq 0)
+        if ($LASTEXITCODE -eq 0) { return $true }
     }
     return $false
 }
 
-function Get-UpdateState {
-    $st = [ordered]@{
-        LastCheckUtc      = ''
-        LastSelfUpdateUtc = ''
-        GpuSignature      = ''
-        MagpieTag         = ''
-        OptiScalerTag     = ''
-        ComfyTag          = ''
-        ForgeTag          = ''
-        A1111Tag          = ''
-        PyTorchOnline     = ''
-        DriverVersion     = ''
-        CudaVersion       = ''
+function Install-FsrToolchain {
+    param($Hw, [switch]$UpdateOnly, [switch]$NonInteractive)
+    if (-not $Hw) { $Hw = Get-HardwareProfile }
+    if (-not (Test-IsAdmin)) {
+        Write-Log "Execute como Administrador para instalar/atualizar ferramentas em $InstallDir." "Red"
+        return
     }
-    if (Test-Path $UpdateStateFile) {
+    $toolsRoot = Join-Path $InstallDir "Tools"
+    New-Item -Path $toolsRoot -ItemType Directory -Force | Out-Null
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch {}
+
+    $destM = Join-Path $toolsRoot "Magpie"
+    $verFileM = Join-Path $destM ".version_modojogo"
+    $curVerM = if (Test-Path $verFileM) { ([System.IO.File]::ReadAllText($verFileM, $utf8NoBom)).Trim() } else { '' }
+    $magInstalled = Test-Path (Join-Path $destM "Magpie.exe")
+
+    # 1. Consultar e baixar/atualizar Magpie (AMD FSR 1.0 Universal)
+    if (-not $UpdateOnly -or $magInstalled) {
+        if (-not $NonInteractive) { Write-Host "`n[1/2] Consultando versao oficial do Magpie (AMD FSR 1.0 Universal)..." -ForegroundColor Cyan }
         try {
-            $raw = Get-Content -Path $UpdateStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($k in @($st.Keys)) {
-                if ($null -ne $raw.$k -and ($raw.$k + '').Trim().Length -gt 0) {
-                    $st[$k] = ($raw.$k + '').Trim()
+            $relM = Get-GitHubReleaseNoApi -RepoSlug 'Blinue/Magpie' -AssetRegex 'x64.*\.zip$|\.zip$'
+            if ($relM -and $relM.AssetUrl) {
+                $needsM = (-not $magInstalled) -or (-not $curVerM) -or ((Compare-SemVerTag -LocalVer $curVerM -RemoteVer $relM.Tag) -gt 0)
+                if ($needsM) {
+                    $zipM = Join-Path $env:TEMP ("magpie_" + ($relM.Tag -replace '[^a-zA-Z0-9._-]','') + ".zip")
+                    Invoke-WebRequest -Uri $relM.AssetUrl -OutFile $zipM -UseBasicParsing -TimeoutSec 90
+                    if (Expand-ArchiveSmart -ArchivePath $zipM -DestDir $destM) {
+                        [System.IO.File]::WriteAllText($verFileM, $relM.Tag, $utf8NoBom)
+                        Write-Log "Magpie (AMD FSR 1.0) atualizado/instalado ($($relM.Tag)) em $destM" "Green"
+                    }
+                    Remove-Item $zipM -Force -ErrorAction SilentlyContinue
+
+                    if (-not $UpdateOnly) {
+                        $batRunner = Join-Path ([Environment]::GetFolderPath('Desktop')) "Ativar_FSR_Universal_Magpie.bat"
+                        $runnerContent = "@echo off`r`nstart `"`" `"$destM\Magpie.exe`"`r`n"
+                        [System.IO.File]::WriteAllText($batRunner, $runnerContent, $utf8NoBom)
+                        Write-Log "Atalho criado na Area de Trabalho: Ativar_FSR_Universal_Magpie.bat (Win+Shift+A no jogo)." "Cyan"
+                    }
+                } else {
+                    Write-Log "Magpie ja esta na versao mais recente ($($relM.Tag))." "Gray" -Silent:$NonInteractive
                 }
             }
-        } catch {}
-    }
-    return [PSCustomObject]$st
-}
-
-function Save-UpdateState {
-    param($State)
-    try {
-        if (-not (Test-Path $InstallDir)) { New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null }
-        $enc = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllText($UpdateStateFile, ($State | ConvertTo-Json -Depth 4), $enc)
-    } catch {}
-}
-
-function Find-LocalAiRoots {
-    $aiRoots = [System.Collections.Generic.List[string]]::new()
-    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
-    foreach ($drv in $drives) {
-        Get-ChildItem -Path $drv.Root -Directory -Depth 2 -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -match 'ComfyUI|stable-diffusion|webui|forge|Fooocus|SDNext|SD\.Next|InvokeAI'
-        } | ForEach-Object {
-            if ($seen.Add($_.FullName)) { $aiRoots.Add($_.FullName) }
+        } catch {
+            Write-Log "Nao foi possivel verificar/baixar Magpie agora ($($_.Exception.Message))." "Yellow"
         }
     }
-    return $aiRoots
-}
 
-function Get-HardwareDriverAndAiState {
-    param($Hw)
-    if (-not $Hw) { $Hw = Get-HardwareProfile }
-    $driverVer = ''
-    $cudaVer   = ''
-    $cudaNum   = 0.0
-    $nvSmi = Get-NvidiaSmiPath
-    if ($Hw.GpuVendor -eq 'NVIDIA' -and $nvSmi) {
+    # 2. Consultar e baixar/atualizar OptiScaler (Ponte DLSS/XeSS -> AMD FSR 2/3)
+    $destO = Join-Path $toolsRoot "OptiScaler"
+    $verFileO = Join-Path $destO ".version_modojogo"
+    $curVerO = if (Test-Path $verFileO) { ([System.IO.File]::ReadAllText($verFileO, $utf8NoBom)).Trim() } else { '' }
+    $optInstalled = (Test-Path $destO) -and (@(Get-ChildItem $destO -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue).Count -gt 0)
+
+    if (-not $UpdateOnly -or $optInstalled) {
+        if (-not $NonInteractive) { Write-Host "`n[2/2] Consultando versao oficial do OptiScaler (Ponte DLSS -> AMD FSR 2/3)..." -ForegroundColor Cyan }
         try {
-            $dv = (& $nvSmi --query-gpu=driver_version --format=csv,noheader 2>$null | Select-Object -First 1)
-            if ($dv) { $driverVer = $dv.Trim() }
-            $hdr = (& $nvSmi 2>$null | Out-String)
-            if ($hdr -match 'CUDA Version:\s*([\d\.]+)') {
-                $cudaVer = $Matches[1]
-                [void][double]::TryParse($cudaVer, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$cudaNum)
+            $relO = Get-GitHubReleaseNoApi -RepoSlug 'optiscaler/OptiScaler' -AssetRegex '\.(zip|7z)$'
+            if ($relO -and $relO.AssetUrl) {
+                $needsO = (-not $optInstalled) -or (-not $curVerO) -or ((Compare-SemVerTag -LocalVer $curVerO -RemoteVer $relO.Tag) -gt 0)
+                if ($needsO) {
+                    $extO = if ($relO.AssetUrl -match '\.zip$') { '.zip' } else { '.7z' }
+                    $arcO = Join-Path $env:TEMP ("optiscaler_" + ($relO.Tag -replace '[^a-zA-Z0-9._-]','') + $extO)
+                    Invoke-WebRequest -Uri $relO.AssetUrl -OutFile $arcO -UseBasicParsing -TimeoutSec 90
+                    if (Expand-ArchiveSmart -ArchivePath $arcO -DestDir $destO) {
+                        [System.IO.File]::WriteAllText($verFileO, $relO.Tag, $utf8NoBom)
+                        Write-Log "OptiScaler (DLSS/XeSS -> AMD FSR 2/3) atualizado/extraido ($($relO.Tag)) em $destO" "Green"
+                    }
+                    Remove-Item $arcO -Force -ErrorAction SilentlyContinue
+                } else {
+                    Write-Log "OptiScaler ja esta na versao mais recente ($($relO.Tag))." "Gray" -Silent:$NonInteractive
+                }
+
+                $optMain = Get-ChildItem $destO -Filter "OptiScaler*.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $optMain) { $optMain = Get-ChildItem $destO -Filter "nvngx.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
+                $optIni  = Get-ChildItem $destO -Filter "OptiScaler.ini" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+
+                $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
+
+                # Atualizar injecoes OptiScaler ja existentes caso uma nova versao tenha sido baixada
+                if ($needsO -and $optMain) {
+                    foreach ($drv in $drives) {
+                        foreach ($sub in @('SteamLibrary\steamapps\common','Program Files (x86)\Steam\steamapps\common','Epic Games','Games','Jogos')) {
+                            $base = Join-Path $drv.Root $sub
+                            if (Test-Path $base) {
+                                Get-ChildItem -Path $base -Filter "OptiScaler.ini" -Recurse -Depth 8 -File -ErrorAction SilentlyContinue | ForEach-Object {
+                                    $gDir = $_.DirectoryName
+                                    $outDll = Join-Path $gDir "nvngx.dll"
+                                    if (Test-Path $outDll) {
+                                        if (-not (Test-Path "$outDll.bak_modojogo")) { Copy-Item $outDll "$outDll.bak_modojogo" -Force }
+                                        Copy-Item $optMain.FullName $outDll -Force
+                                        Write-Log "OptiScaler atualizado automaticamente no jogo: $gDir ($($relO.Tag))" "Green"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                # Modo interativo: oferecer injecao segura em jogos com nvngx_dlss.dll
+                if (-not $NonInteractive -and $optMain) {
+                    $dlssGames = [System.Collections.Generic.List[object]]::new()
+                    foreach ($drv in $drives) {
+                        foreach ($sub in @('SteamLibrary\steamapps\common','Program Files (x86)\Steam\steamapps\common','Epic Games','Games','Jogos')) {
+                            $base = Join-Path $drv.Root $sub
+                            if (Test-Path $base) {
+                                Get-ChildItem -Path $base -Filter "nvngx_dlss.dll" -Recurse -Depth 8 -File -ErrorAction SilentlyContinue | ForEach-Object {
+                                    $dlssGames.Add($_)
+                                }
+                            }
+                        }
+                    }
+                    if ($dlssGames.Count -gt 0) {
+                        Write-Host "`nJogos com suporte a DLSS encontrados (podem receber AMD FSR 2/3 via OptiScaler):" -ForegroundColor Cyan
+                        for ($idx = 0; $idx -lt $dlssGames.Count; $idx++) {
+                            Write-Host (" [{0}] {1}" -f ($idx + 1), $dlssGames[$idx].DirectoryName)
+                        }
+                        $pick = Read-Host "Digite o numero do jogo para instalar OptiScaler (ou Enter para pular)"
+                        $nIdx = 0
+                        if ([int]::TryParse($pick, [ref]$nIdx) -and $nIdx -ge 1 -and $nIdx -le $dlssGames.Count) {
+                            $targetDir = $dlssGames[$nIdx - 1].DirectoryName
+                            $outDll = Join-Path $targetDir "nvngx.dll"
+                            if ((Test-Path $outDll) -and (-not (Test-Path "$outDll.bak_modojogo"))) { Copy-Item $outDll "$outDll.bak_modojogo" -Force }
+                            Copy-Item $optMain.FullName $outDll -Force
+                            if ($optIni) { Copy-Item $optIni.FullName (Join-Path $targetDir "OptiScaler.ini") -Force }
+                            Write-Log "OptiScaler instalado em $targetDir (aperte Insert dentro do jogo para escolher FSR 2/3)." "Green"
+                        }
+                    }
+                }
             }
-        } catch {}
-    }
-    if (-not $driverVer) {
-        try {
-            $vCtl = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $Hw.GpuName } | Select-Object -First 1
-            if ($vCtl -and $vCtl.DriverVersion) { $driverVer = $vCtl.DriverVersion }
-        } catch {}
-    }
-    $localTorch = ''
-    foreach ($pyCmd in @('python', 'py')) {
-        $cmdObj = Get-Command $pyCmd -ErrorAction SilentlyContinue
-        if ($cmdObj) {
-            try {
-                $pyArgs = if ($pyCmd -eq 'py') { @('-3', '-c', 'import torch; print(torch.__version__)') } else { @('-c', 'import torch; print(torch.__version__)') }
-                $out = & $cmdObj.Source @pyArgs 2>$null | Select-Object -First 1
-                if ($out -and ($out -match '^\d+\.\d+')) { $localTorch = $out.Trim(); break }
-            } catch {}
+        } catch {
+            Write-Log "Nao foi possivel verificar/baixar OptiScaler agora ($($_.Exception.Message))." "Yellow"
         }
-    }
-    $ssdCount = @($Hw.Disks | Where-Object { $_.MediaType -match 'SSD|SCM' }).Count
-    $osBuild  = [System.Environment]::OSVersion.Version.Build
-    return [PSCustomObject]@{
-        DriverVersion = $driverVer
-        CudaVersion   = $cudaVer
-        CudaNumeric   = $cudaNum
-        LocalPyTorch  = $localTorch
-        SsdCount      = $ssdCount
-        OsBuild       = $osBuild
-        DirectStorageReady = ($ssdCount -gt 0 -and $osBuild -ge 19041)
-        AiRoots       = @(Find-LocalAiRoots)
-        Upscalers     = Find-ExistingUpscalers
     }
 }
 
-function Get-SdxlHardwareRecommendation {
-    param($Hw, $AiState)
+function Optimize-SdxlAndAiEnvironment {
+    param($Hw, [switch]$Silent)
     if (-not $Hw) { $Hw = Get-HardwareProfile }
-    if (-not $AiState) { $AiState = Get-HardwareDriverAndAiState -Hw $Hw }
 
+    # 1. Variaveis globais CUDA / PyTorch otimizadas para memoria e carregamento rapido
     $allocConf = if ($Hw.LowVram) {
         'expandable_segments:True,garbage_collection_threshold:0.6,max_split_size_mb:128'
     } elseif ($Hw.VramMB -le 8500) {
@@ -1585,200 +1581,50 @@ function Get-SdxlHardwareRecommendation {
         'expandable_segments:True'
     }
 
-    if ($Hw.GpuVendor -eq 'NVIDIA') {
-        $sdxlArgs = if ($Hw.LowVram -and $Hw.IsPascalOrOlder) {
-            '--lowvram --opt-sdp-attention --no-half-vae --disable-nan-check'
-        } elseif ($Hw.LowVram) {
-            '--lowvram --opt-sdp-attention'
-        } elseif ($Hw.VramMB -le 8500) {
-            '--medvram-sdxl --opt-sdp-attention'
-        } else {
-            '--opt-sdp-attention'
-        }
-        $comfyFlags = if ($Hw.LowVram) { '--lowvram --preview-method auto' } elseif ($Hw.VramMB -le 8500) { '--normalvram --preview-method auto' } else { '--highvram --preview-method auto' }
-        $isArm = ($env:PROCESSOR_ARCHITECTURE -match 'ARM64')
-        $comfyRegex = if ($isArm) { 'nvidia_arm64\.7z$' } elseif ($AiState.CudaNumeric -ge 12.6) { 'nvidia_cu126\.7z$' } else { 'nvidia\.7z$' }
-        $forgeRegex = if ($AiState.CudaNumeric -ge 12.4) { 'cu124.*\.7z$' } else { 'cu121.*\.7z$' }
-        $torchIndex = if ($AiState.CudaNumeric -ge 12.6) { 'https://download.pytorch.org/whl/cu126' } elseif ($AiState.CudaNumeric -ge 12.4) { 'https://download.pytorch.org/whl/cu124' } elseif ($AiState.CudaNumeric -ge 12.1) { 'https://download.pytorch.org/whl/cu121' } else { 'https://download.pytorch.org/whl/cu118' }
-    } elseif ($Hw.GpuVendor -eq 'AMD') {
-        $sdxlArgs   = if ($Hw.LowVram) { '--lowvram --use-directml' } else { '--use-directml' }
-        $comfyFlags = if ($Hw.LowVram) { '--directml --lowvram --preview-method auto' } else { '--directml --preview-method auto' }
-        $comfyRegex = 'portable_amd\.7z$'
-        $forgeRegex = ''
-        $torchIndex = 'torch-directml'
-    } else {
-        $sdxlArgs   = if ($Hw.LowVram) { '--lowvram --use-directml' } else { '--use-directml' }
-        $comfyFlags = '--directml --preview-method auto'
-        $comfyRegex = if ($Hw.GpuVendor -eq 'Intel') { 'portable_intel\.7z$' } else { 'portable_nvidia\.7z$' }
-        $forgeRegex = ''
-        $torchIndex = 'torch-directml / ipex'
-    }
-
-    return [PSCustomObject]@{
-        AllocConf       = $allocConf
-        SdxlArgs        = $sdxlArgs
-        ComfyFlags      = $comfyFlags
-        ComfyAssetRegex = $comfyRegex
-        ForgeAssetRegex = $forgeRegex
-        TorchIndexUrl   = $torchIndex
-        PreferFsr       = ($Hw.NoTensorCores -or $Hw.LowVram)
-    }
-}
-
-function Apply-OptiScalerToDirectory {
-    param([string]$OptiDir, [string]$GameDir)
-    if (-not (Test-Path $OptiDir) -or -not (Test-Path $GameDir)) { return $false }
-    $optMain = Get-ChildItem $OptiDir -Filter "OptiScaler*.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $optMain) { $optMain = Get-ChildItem $OptiDir -Filter "nvngx.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
-    $optIni  = Get-ChildItem $OptiDir -Filter "OptiScaler.ini" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $optMain) { return $false }
-    $outDll = Join-Path $GameDir "nvngx.dll"
-    if ((Test-Path $outDll) -and (-not (Test-Path "$outDll.bak_modojogo"))) { Copy-Item $outDll "$outDll.bak_modojogo" -Force }
-    Copy-Item $optMain.FullName $outDll -Force
-    if ($optIni) { Copy-Item $optIni.FullName (Join-Path $GameDir "OptiScaler.ini") -Force }
-    return $true
-}
-
-function Install-FsrToolchain {
-    param(
-        $Hw,
-        [switch]$AutoNonInteractive,
-        [switch]$UpdateExistingOnly,
-        $StateOverride,
-        [switch]$Silent
-    )
-    if (-not $Hw) { $Hw = Get-HardwareProfile }
-    if (-not (Test-IsAdmin)) {
-        Write-Log "Execute como Administrador para instalar ferramentas em $InstallDir." "Red" -Silent:$Silent
-        return $null
-    }
-    $toolsRoot = Join-Path $InstallDir "Tools"
-    New-Item -Path $toolsRoot -ItemType Directory -Force | Out-Null
-    $state = if ($StateOverride) { $StateOverride } else { Get-UpdateState }
-    $ups   = Find-ExistingUpscalers
-
-    $catalog = @(
-        @{
-            Name       = 'Magpie'
-            Label      = 'Magpie (AMD FSR 1.0 Universal)'
-            Repo       = 'Blinue/Magpie'
-            AssetRegex = if ($env:PROCESSOR_ARCHITECTURE -match 'ARM64') { 'ARM64.*\.zip$' } else { 'x64.*\.zip$' }
-            DestDir    = (Join-Path $toolsRoot 'Magpie')
-            StateKey   = 'MagpieTag'
-            IsInstalled = [bool]$ups.Magpie
-        },
-        @{
-            Name       = 'OptiScaler'
-            Label      = 'OptiScaler (Ponte DLSS/XeSS -> AMD FSR 2/3)'
-            Repo       = 'optiscaler/OptiScaler'
-            AssetRegex = '\.(zip|7z)$'
-            DestDir    = (Join-Path $toolsRoot 'OptiScaler')
-            StateKey   = 'OptiScalerTag'
-            IsInstalled = [bool]$ups.OptiScaler
-        }
-    )
-
-    $updatedTools = [System.Collections.Generic.List[string]]::new()
-    foreach ($item in $catalog) {
-        if ($UpdateExistingOnly -and -not $item.IsInstalled) { continue }
-        $rel = Get-GitHubLatestRelease -Repo $item.Repo -AssetRegex $item.AssetRegex
-        $curTag = $state.($item.StateKey)
-        if ($UpdateExistingOnly -and $item.IsInstalled -and $curTag -and $rel.TagName -and ($curTag -eq $rel.TagName)) {
-            continue
-        }
-        if (-not $AutoNonInteractive) {
-            Write-Host "`nConsultando versao oficial de $($item.Label) no GitHub..." -ForegroundColor Cyan
-        }
-        if ($rel.DownloadUrl) {
-            $tmpArc = Join-Path $env:TEMP $rel.AssetName
-            try {
-                Invoke-WebRequest -Uri $rel.DownloadUrl -OutFile $tmpArc -UseBasicParsing -TimeoutSec 90
-                if (Expand-ArchiveSmart -ArchivePath $tmpArc -DestDir $item.DestDir) {
-                    $state.($item.StateKey) = $rel.TagName
-                    $updatedTools.Add("$($item.Name)=$($rel.TagName)")
-                    Write-Log "$($item.Label) atualizado/instalado [$($rel.TagName)] em $($item.DestDir)" "Green" -Silent:$Silent
-                    if ($item.Name -eq 'Magpie') {
-                        $batRunner = Join-Path ([Environment]::GetFolderPath('Desktop')) "Ativar_FSR_Universal_Magpie.bat"
-                        $runnerContent = "@echo off`r`nstart `"`" `"$($item.DestDir)\Magpie.exe`"`r`n"
-                        [System.IO.File]::WriteAllText($batRunner, $runnerContent, (New-Object System.Text.UTF8Encoding($false)))
-                    } elseif ($item.Name -eq 'OptiScaler') {
-                        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
-                        $dlssGames = [System.Collections.Generic.List[object]]::new()
-                        foreach ($drv in $drives) {
-                            foreach ($sub in @('SteamLibrary\steamapps\common','Program Files (x86)\Steam\steamapps\common','Epic Games','Games','Jogos')) {
-                                $base = Join-Path $drv.Root $sub
-                                if (Test-Path $base) {
-                                    Get-ChildItem -Path $base -Filter "nvngx_dlss.dll" -Recurse -Depth 8 -File -ErrorAction SilentlyContinue | ForEach-Object { $dlssGames.Add($_) }
-                                }
-                            }
-                        }
-                        # Atualiza automaticamente jogos que ja receberam OptiScaler anteriormente (com .bak_modojogo)
-                        foreach ($dg in $dlssGames) {
-                            if (Test-Path (Join-Path $dg.DirectoryName "nvngx.dll.bak_modojogo")) {
-                                if (Apply-OptiScalerToDirectory -OptiDir $item.DestDir -GameDir $dg.DirectoryName) {
-                                    Write-Log "OptiScaler atualizado automaticamente no jogo: $($dg.DirectoryName)" "Green" -Silent:$Silent
-                                }
-                            }
-                        }
-                        if (-not $AutoNonInteractive -and $dlssGames.Count -gt 0) {
-                            Write-Host "`nJogos com suporte a DLSS encontrados (podem receber AMD FSR 2/3 via OptiScaler):" -ForegroundColor Cyan
-                            for ($idx = 0; $idx -lt $dlssGames.Count; $idx++) {
-                                Write-Host (" [{0}] {1}" -f ($idx + 1), $dlssGames[$idx].DirectoryName)
-                            }
-                            $pick = Read-Host "Digite o numero do jogo para instalar OptiScaler (ou Enter para pular)"
-                            $nIdx = 0
-                            if ([int]::TryParse($pick, [ref]$nIdx) -and $nIdx -ge 1 -and $nIdx -le $dlssGames.Count) {
-                                $targetDir = $dlssGames[$nIdx - 1].DirectoryName
-                                if (Apply-OptiScalerToDirectory -OptiDir $item.DestDir -GameDir $targetDir) {
-                                    Write-Log "OptiScaler instalado em $targetDir (aperte Insert dentro do jogo para escolher FSR 2/3)." "Green"
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch {
-                Write-Log "Nao foi possivel baixar $($item.Name) agora ($($_.Exception.Message))." "Yellow" -Silent:$Silent
-            } finally {
-                Remove-Item $tmpArc -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }
-    if (-not $StateOverride) { Save-UpdateState -State $state }
-    return [PSCustomObject]@{ State = $state; UpdatedTools = $updatedTools }
-}
-
-function Optimize-SdxlAndAiEnvironment {
-    param($Hw, $AiState, [switch]$Silent)
-    if (-not $Hw) { $Hw = Get-HardwareProfile }
-    if (-not $AiState) { $AiState = Get-HardwareDriverAndAiState -Hw $Hw }
-    $rec = Get-SdxlHardwareRecommendation -Hw $Hw -AiState $AiState
-
     try {
         [Environment]::SetEnvironmentVariable('CUDA_MODULE_LOADING', 'LAZY', 'User')
         [Environment]::SetEnvironmentVariable('SAFETENSORS_FAST_GPU', '1', 'User')
-        [Environment]::SetEnvironmentVariable('PYTORCH_CUDA_ALLOC_CONF', $rec.AllocConf, 'User')
+        [Environment]::SetEnvironmentVariable('PYTORCH_CUDA_ALLOC_CONF', $allocConf, 'User')
     } catch {}
+
+    $sdxlArgs = if ($Hw.LowVram -and $Hw.IsPascalOrOlder) {
+        '--lowvram --opt-sdp-attention --no-half-vae --disable-nan-check'
+    } elseif ($Hw.LowVram) {
+        '--lowvram --opt-sdp-attention'
+    } elseif ($Hw.VramMB -le 8500) {
+        '--medvram-sdxl --opt-sdp-attention'
+    } else {
+        '--opt-sdp-attention'
+    }
+
+    # 2. Detectar ComfyUI / Automatic1111 / Forge / Fooocus / SD.Next e gerar launcher SDXL sob medida
+    $aiRoots = [System.Collections.Generic.List[string]]::new()
+    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
+    foreach ($drv in $drives) {
+        Get-ChildItem -Path $drv.Root -Directory -Depth 2 -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match 'ComfyUI|stable-diffusion|webui|forge|Fooocus|SDNext|SD\.Next|InvokeAI'
+        } | ForEach-Object { $aiRoots.Add($_.FullName) }
+    }
 
     $configuredCount = 0
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    foreach ($dir in $AiState.AiRoots) {
+    foreach ($dir in $aiRoots) {
         $webuiBat = Join-Path $dir "webui-user.bat"
         if (Test-Path $webuiBat) {
             if (-not (Test-Path "$webuiBat.bak_modojogo")) { Copy-Item $webuiBat "$webuiBat.bak_modojogo" -Force }
             $txt = [System.IO.File]::ReadAllText($webuiBat, $utf8NoBom)
-            $upd = $txt -replace '(?m)^set\s+COMMANDLINE_ARGS=.*$', "set COMMANDLINE_ARGS=$($rec.SdxlArgs)"
+            $upd = $txt -replace '(?m)^set\s+COMMANDLINE_ARGS=.*$', "set COMMANDLINE_ARGS=$sdxlArgs"
             if ($upd -notmatch 'PYTORCH_CUDA_ALLOC_CONF') {
-                $upd = "set CUDA_MODULE_LOADING=LAZY`r`nset SAFETENSORS_FAST_GPU=1`r`nset PYTORCH_CUDA_ALLOC_CONF=$($rec.AllocConf)`r`n" + $upd
-            } else {
-                $upd = $upd -replace '(?m)^set\s+PYTORCH_CUDA_ALLOC_CONF=.*$', "set PYTORCH_CUDA_ALLOC_CONF=$($rec.AllocConf)"
+                $upd = "set CUDA_MODULE_LOADING=LAZY`r`nset SAFETENSORS_FAST_GPU=1`r`nset PYTORCH_CUDA_ALLOC_CONF=$allocConf`r`n" + $upd
             }
             if ($upd -ne $txt) { [System.IO.File]::WriteAllText($webuiBat, $upd, $utf8NoBom) }
             $configuredCount++
         }
         $mainPy = Join-Path $dir "main.py"
         if ((Test-Path $mainPy) -and ($dir -match 'ComfyUI')) {
+            $cFlags = if ($Hw.LowVram) { "--lowvram --preview-method auto" } elseif ($Hw.VramMB -le 8500) { "--normalvram --preview-method auto" } else { "--highvram --preview-method auto" }
             $comfyBat = Join-Path $dir "Start_SDXL_Optimized.bat"
-            $cBody = "@echo off`r`nset CUDA_MODULE_LOADING=LAZY`r`nset SAFETENSORS_FAST_GPU=1`r`nset PYTORCH_CUDA_ALLOC_CONF=$($rec.AllocConf)`r`npython main.py $($rec.ComfyFlags)`r`npause`r`n"
+            $cBody = "@echo off`r`nset CUDA_MODULE_LOADING=LAZY`r`nset SAFETENSORS_FAST_GPU=1`r`nset PYTORCH_CUDA_ALLOC_CONF=$allocConf`r`npython main.py $cFlags`r`npause`r`n"
             [System.IO.File]::WriteAllText($comfyBat, $cBody, $utf8NoBom)
             $configuredCount++
         }
@@ -1786,265 +1632,8 @@ function Optimize-SdxlAndAiEnvironment {
 
     $pfUsage = Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue | Select-Object -First 1
     $pfNote = if ($pfUsage) { "PageFile=$($pfUsage.AllocatedBaseSize)MB" } else { "PageFile=Auto" }
-    $aiNote = if ($configuredCount -gt 0) { "$configuredCount ambiente(s) SDXL otimizados ($($rec.SdxlArgs))" } else { "Variaveis CUDA/PyTorch prontas ($($rec.SdxlArgs))" }
-    Write-Log "Otimizacao SDXL / IA aplicada: $aiNote | PyTorch=$($rec.TorchIndexUrl) | $pfNote" "Green" -Silent:$Silent
-}
-
-function Update-BatScriptFromInternet {
-    param(
-        [string]$RawUrl,
-        [string]$TargetBatPath,
-        [string[]]$ExtraMirrorPaths = @(),
-        [switch]$CheckOnly,
-        [switch]$Silent
-    )
-    $res = [PSCustomObject]@{
-        Checked         = $false
-        UpdateAvailable = $false
-        Updated         = $false
-        LocalHash       = ''
-        RemoteHash      = ''
-        Error           = $null
-    }
-    if (-not $RawUrl) { $res.Error = 'URL vazia'; return $res }
-    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
-    try {
-        $resp = Invoke-WebRequest -Uri $RawUrl -Headers @{ 'User-Agent' = 'HardwareAwareUpdater'; 'Cache-Control' = 'no-cache' } -UseBasicParsing -TimeoutSec 15
-        $remoteText = $resp.Content
-        if (-not (Test-PowerShellBatSyntax -BatText $remoteText)) {
-            $res.Error = 'Codigo remoto invalido ou incompleto (falha na verificacao AST)'
-            return $res
-        }
-        $res.Checked    = $true
-        $res.RemoteHash = Get-NormalizedTextHash -Text $remoteText
-        $enc = New-Object System.Text.UTF8Encoding($false)
-        if ($TargetBatPath -and (Test-Path $TargetBatPath)) {
-            $localText = [System.IO.File]::ReadAllText($TargetBatPath, $enc)
-            $res.LocalHash = Get-NormalizedTextHash -Text $localText
-        }
-        $res.UpdateAvailable = ($res.RemoteHash -ne '' -and $res.RemoteHash -ne $res.LocalHash)
-        if ($res.UpdateAvailable -and -not $CheckOnly) {
-            $crlfText = (($remoteText -replace "(\r\n|\r|\n)", "`n").TrimEnd("`r", "`n")) -replace "`n", "`r`n"
-            $crlfText += "`r`n"
-            $targets = [System.Collections.Generic.List[string]]::new()
-            $seenT   = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-            if ($TargetBatPath -and $seenT.Add($TargetBatPath)) { $targets.Add($TargetBatPath) }
-            foreach ($m in $ExtraMirrorPaths) {
-                if ($m -and (Test-Path $m) -and $seenT.Add($m)) { $targets.Add($m) }
-            }
-            foreach ($tp in $targets) {
-                if (Test-Path $tp) { Copy-Item $tp "$tp.bak_update" -Force -ErrorAction SilentlyContinue }
-                $par = Split-Path $tp -Parent
-                if ($par -and -not (Test-Path $par)) { New-Item -Path $par -ItemType Directory -Force | Out-Null }
-                [System.IO.File]::WriteAllText($tp, $crlfText, $enc)
-            }
-            $res.Updated = $true
-            Write-Log "Codigo .bat atualizado com seguranca via GitHub ($($targets.Count) copia(s), SHA256=$($res.RemoteHash.Substring(0,8))...)." "Green" -Silent:$Silent
-        }
-    } catch {
-        $res.Error = $_.Exception.Message
-    }
-    return $res
-}
-
-function Invoke-HardwareAwareOnlineUpdate {
-    param(
-        [string]$RepoRawUrl = '',
-        $Hw,
-        [switch]$CheckOnly,
-        [switch]$SkipSelfUpdate,
-        [switch]$AutoApply,
-        [switch]$InstallMissingFsrTools,
-        [switch]$UpdateGitAiRepos,
-        [switch]$Silent,
-        [switch]$Force
-    )
-    if (-not $Hw) { $Hw = Get-HardwareProfile }
-    $netOk = [System.Net.NetworkInformation.NetworkInterface]::GetIsNetworkAvailable()
-    if (-not $netOk) {
-        Write-Log "Sem conexao de internet no momento; verificacao online ignorada." "Yellow" -Silent:$Silent
-        return [PSCustomObject]@{ NetworkAvailable = $false; SelfUpdated = $false; ScriptUpdateAvailable = $false; HardwareChanged = $false }
-    }
-
-    $aiState = Get-HardwareDriverAndAiState -Hw $Hw
-    $sdxlRec = Get-SdxlHardwareRecommendation -Hw $Hw -AiState $aiState
-    $state   = Get-UpdateState
-    $cfg     = Get-ModoJogoConfig
-
-    $gpuSig = "$($Hw.GpuVendor)|$($Hw.GpuName)|$($Hw.VramMB)|$($Hw.CpuName)|$($Hw.RamTotalGB)|$($Hw.DisplayW)x$($Hw.DisplayH)"
-    $hwChanged = ($state.GpuSignature -ne '' -and $state.GpuSignature -ne $gpuSig)
-    if ($hwChanged) {
-        Write-Log "Mudanca de hardware detectada ($($state.GpuSignature) -> $gpuSig). Recalibrando FSR/DSL/SDXL/IA..." "Yellow" -Silent:$Silent
-    }
-
-    # 1. Auto-atualizacao do proprio .bat pela internet (mantendo compatibilidade com a URL configurada)
-    $rawUrl = if ($RepoRawUrl) { $RepoRawUrl } elseif ($cfg.UpdateRawUrl) { $cfg.UpdateRawUrl } else { $DefaultUpdateRawUrl }
-    $selfPath = $env:MODOJOGO_SELF
-    $selfFileName = if ($selfPath) { [System.IO.Path]::GetFileName($selfPath) } else { [System.IO.Path]::GetFileName(([uri]$rawUrl).AbsolutePath) }
-    $mirrors = @(
-        (Join-Path $InstallDir $selfFileName),
-        (Join-Path ([Environment]::GetFolderPath('Desktop')) $selfFileName)
-    )
-    $scriptRes = $null
-    if (-not $SkipSelfUpdate) {
-        $scriptRes = Update-BatScriptFromInternet -RawUrl $rawUrl -TargetBatPath $selfPath -ExtraMirrorPaths $mirrors -CheckOnly:$CheckOnly -Silent:$Silent
-        if ($scriptRes.Updated) { $state.LastSelfUpdateUtc = [DateTime]::UtcNow.ToString('o') }
-    }
-
-    # 2. Verificacao online de FSR + DSL (Magpie, OptiScaler e DirectStorage/SSD) baseada no hardware atual
-    $magRx         = if ($env:PROCESSOR_ARCHITECTURE -match 'ARM64') { 'ARM64.*\.zip$' } else { 'x64.*\.zip$' }
-    $relMagpie     = Get-GitHubLatestRelease -Repo 'Blinue/Magpie' -AssetRegex $magRx
-    $relOptiScaler = Get-GitHubLatestRelease -Repo 'optiscaler/OptiScaler' -AssetRegex '\.(zip|7z)$'
-    $magpieUpdateAvail     = ($relMagpie.TagName -and $aiState.Upscalers.Magpie -and $state.MagpieTag -and ($state.MagpieTag -ne $relMagpie.TagName))
-    $optiUpdateAvail       = ($relOptiScaler.TagName -and $aiState.Upscalers.OptiScaler -and $state.OptiScalerTag -and ($state.OptiScalerTag -ne $relOptiScaler.TagName))
-
-    # 3. Verificacao online de SDXL / IA (ComfyUI, Forge, A1111, PyTorch) para esta GPU/CUDA/VRAM
-    $relComfy = Get-GitHubLatestRelease -Repo 'comfyanonymous/ComfyUI' -AssetRegex $sdxlRec.ComfyAssetRegex
-    $relForge = if ($sdxlRec.ForgeAssetRegex) { Get-GitHubLatestRelease -Repo 'lllyasviel/stable-diffusion-webui-forge' -AssetRegex $sdxlRec.ForgeAssetRegex } else { $null }
-    $relA1111 = Get-GitHubLatestRelease -Repo 'AUTOMATIC1111/stable-diffusion-webui' -AssetRegex ''
-    $torchVerOnline = ''
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $pypiT = Invoke-RestMethod -Uri 'https://pypi.org/pypi/torch/json' -Headers @{ 'User-Agent' = 'HardwareAwareUpdater' } -TimeoutSec 12
-        if ($pypiT -and $pypiT.info -and $pypiT.info.version) { $torchVerOnline = ($pypiT.info.version + '').Trim() }
-    } catch {}
-
-    # Salvar ficha de IA / FSR adaptada ao hardware atual em %ProgramData%\ModoJogoAutomatico\ai_hardware_profile.json
-    try {
-        New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
-        $aiProfile = [ordered]@{
-            UpdatedUtc            = [DateTime]::UtcNow.ToString('o')
-            HardwareSignature     = $gpuSig
-            GpuVendor             = $Hw.GpuVendor
-            GpuName               = $Hw.GpuName
-            VramMB                = $Hw.VramMB
-            DriverVersion         = $aiState.DriverVersion
-            CudaVersion           = $aiState.CudaVersion
-            DirectStorageReady    = $aiState.DirectStorageReady
-            PreferFsrOverDlss     = $sdxlRec.PreferFsr
-            RecommendedSdxlArgs   = $sdxlRec.SdxlArgs
-            RecommendedComfyFlags = $sdxlRec.ComfyFlags
-            RecommendedTorchIndex = $sdxlRec.TorchIndexUrl
-            PyTorchLocal          = $aiState.LocalPyTorch
-            PyTorchOnline         = $torchVerOnline
-            MagpieOnlineTag       = $relMagpie.TagName
-            MagpieHardwareAsset   = $relMagpie.DownloadUrl
-            OptiScalerOnlineTag   = $relOptiScaler.TagName
-            OptiScalerHardwareAsset = $relOptiScaler.DownloadUrl
-            ComfyOnlineTag        = $relComfy.TagName
-            ComfyHardwareAsset    = $relComfy.DownloadUrl
-            ForgeHardwareAsset    = if ($relForge) { $relForge.DownloadUrl } else { $null }
-            A1111OnlineTag        = $relA1111.TagName
-        }
-        $enc = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllText((Join-Path $InstallDir 'ai_hardware_profile.json'), ($aiProfile | ConvertTo-Json -Depth 4), $enc)
-    } catch {}
-
-    # 4. Verificacao de Drivers GPU/PCI pendentes via Windows Update COM
-    $pendingPciDrivers = [System.Collections.Generic.List[string]]::new()
-    try {
-        $wuSess = New-Object -ComObject Microsoft.Update.Session
-        $wuSrch = $wuSess.CreateUpdateSearcher()
-        $drvRes = $wuSrch.Search("IsInstalled=0 and Type='Driver'")
-        foreach ($du in $drvRes.Updates) {
-            $hwids = ($du.DriverHardwareID -join ';').ToLower()
-            if ($hwids -match '^pci\\|pci\\ven_|display|hdaudio') {
-                $pendingPciDrivers.Add($du.Title)
-            }
-        }
-    } catch {}
-
-    $updatedItems = [System.Collections.Generic.List[string]]::new()
-    if (-not $CheckOnly) {
-        if ($hwChanged -or $Force -or $AutoApply) {
-            Optimize-AmdFsrAndUpscaling -Hw $Hw -Silent:$Silent
-            Optimize-SdxlAndAiEnvironment -Hw $Hw -AiState $aiState -Silent:$Silent
-            $updatedItems.Add("Config FSR/DSL/SDXL ($($Hw.GpuVendor) $($Hw.VramMB)MB)")
-        }
-
-        if ($InstallMissingFsrTools -or $magpieUpdateAvail -or $optiUpdateAvail) {
-            $fsrRes = Install-FsrToolchain -Hw $Hw -AutoNonInteractive -UpdateExistingOnly:(-not $InstallMissingFsrTools) -StateOverride $state -Silent:$Silent
-            if ($fsrRes -and $fsrRes.UpdatedTools.Count -gt 0) {
-                foreach ($ut in $fsrRes.UpdatedTools) { $updatedItems.Add($ut) }
-            }
-        }
-
-        if ($UpdateGitAiRepos -and (Get-Command git -ErrorAction SilentlyContinue)) {
-            foreach ($dir in $aiState.AiRoots) {
-                if (Test-Path (Join-Path $dir '.git')) {
-                    try {
-                        $dirty = & git -C $dir status --porcelain 2>$null
-                        if (-not $dirty) {
-                            & git -C $dir pull --ff-only 2>$null | Out-Null
-                            if ($LASTEXITCODE -eq 0) { $updatedItems.Add("GitPull:" + (Split-Path $dir -Leaf)) }
-                        }
-                    } catch {}
-                }
-            }
-        }
-
-        if ($AutoApply -and (Test-IsAdmin)) {
-            try { Update-MpSignature -ErrorAction SilentlyContinue } catch {}
-            if ($pendingPciDrivers.Count -gt 0 -and $Force) {
-                try {
-                    $wuSess2 = New-Object -ComObject Microsoft.Update.Session
-                    $drvRes2 = $wuSess2.CreateUpdateSearcher().Search("IsInstalled=0 and Type='Driver'")
-                    $drvColl = New-Object -ComObject Microsoft.Update.UpdateColl
-                    foreach ($du in $drvRes2.Updates) {
-                        $hwids = ($du.DriverHardwareID -join ';').ToLower()
-                        if ($hwids -match '^pci\\|pci\\ven_') { [void]$drvColl.Add($du) }
-                    }
-                    if ($drvColl.Count -gt 0) {
-                        $dl = $wuSess2.CreateUpdateDownloader(); $dl.Updates = $drvColl; [void]$dl.Download()
-                        $in = $wuSess2.CreateUpdateInstaller(); $in.Updates = $drvColl; [void]$in.Install()
-                        $updatedItems.Add("DriversPCI($($drvColl.Count))")
-                    }
-                } catch {}
-            }
-        }
-    }
-
-    if ($relMagpie.TagName -and $aiState.Upscalers.Magpie -and -not $state.MagpieTag)       { $state.MagpieTag = $relMagpie.TagName }
-    if ($relOptiScaler.TagName -and $aiState.Upscalers.OptiScaler -and -not $state.OptiScalerTag) { $state.OptiScalerTag = $relOptiScaler.TagName }
-    if ($relComfy.TagName)   { $state.ComfyTag = $relComfy.TagName }
-    if ($relForge -and $relForge.TagName) { $state.ForgeTag = $relForge.TagName }
-    if ($relA1111.TagName)   { $state.A1111Tag = $relA1111.TagName }
-    if ($torchVerOnline)     { $state.PyTorchOnline = $torchVerOnline }
-    $state.DriverVersion     = $aiState.DriverVersion
-    $state.CudaVersion       = $aiState.CudaVersion
-    $state.GpuSignature      = $gpuSig
-    $state.LastCheckUtc      = [DateTime]::UtcNow.ToString('o')
-    Save-UpdateState -State $state
-
-    if (-not $Silent) {
-        Write-Host "`n--- VERIFICACAO ONLINE HARDWARE-AWARE (CODIGO + FSR/DSL + SDXL/IA + DRIVERS) ---" -ForegroundColor Cyan
-        Write-Host (" Hardware PC   : {0} | {1} GB RAM | {2} ({3} MB) | Driver={4} CUDA={5}" -f $Hw.CpuName, $Hw.RamTotalGB, $Hw.GpuName, $Hw.VramMB, $(if ($aiState.DriverVersion) {$aiState.DriverVersion} else {'N/A'}), $(if ($aiState.CudaVersion) {$aiState.CudaVersion} else {'N/A'})) -ForegroundColor Gray
-        Write-Host (" DirectStorage : {0} | SDXL Ideal: {1}" -f $(if ($aiState.DirectStorageReady) {"SSD+Build$($aiState.OsBuild) OK"} else {"HDD/Legado"}), $sdxlRec.SdxlArgs) -ForegroundColor Gray
-        $scriptStatus = if (-not $scriptRes -or -not $scriptRes.Checked) { "Ignorado/Offline" } elseif ($scriptRes.Updated) { "ATUALIZADO agora" } elseif ($scriptRes.UpdateAvailable) { "NOVA VERSAO DISPONIVEL online!" } else { "Atualizado (igual ao GitHub)" }
-        Write-Host (" Codigo .bat   : {0}" -f $scriptStatus) -ForegroundColor $(if ($scriptRes -and $scriptRes.UpdateAvailable -and -not $scriptRes.Updated) {'Yellow'} else {'Green'})
-        Write-Host (" AMD FSR / DSL : Magpie={0} | OptiScaler(DLSS->FSR)={1}" -f $(if ($relMagpie.TagName) {$relMagpie.TagName} else {'N/A'}), $(if ($relOptiScaler.TagName) {$relOptiScaler.TagName} else {'N/A'})) -ForegroundColor Gray
-        Write-Host (" SDXL / IA     : ComfyUI={0} | A1111={1} | PyTorch Local={2} / PyPI={3}" -f $(if ($relComfy.TagName) {$relComfy.TagName} else {'N/A'}), $(if ($relA1111.TagName) {$relA1111.TagName} else {'N/A'}), $(if ($aiState.LocalPyTorch) {$aiState.LocalPyTorch} else {'Nao detectado'}), $(if ($torchVerOnline) {$torchVerOnline} else {'N/A'})) -ForegroundColor Gray
-        Write-Host (" Drivers WU    : {0} pendente(s) PCI/GPU" -f $pendingPciDrivers.Count) -ForegroundColor $(if ($pendingPciDrivers.Count -gt 0) {'Yellow'} else {'Green'})
-        if ($updatedItems.Count -gt 0) {
-            Write-Log ("Atualizacoes/calibracoes aplicadas agora: " + ($updatedItems -join ', ')) "Green"
-        }
-    }
-
-    return [PSCustomObject]@{
-        NetworkAvailable      = $true
-        HardwareChanged       = $hwChanged
-        ScriptChecked         = if ($scriptRes) { $scriptRes.Checked } else { $false }
-        ScriptUpdateAvailable = if ($scriptRes) { $scriptRes.UpdateAvailable } else { $false }
-        SelfUpdated           = if ($scriptRes) { $scriptRes.Updated } else { $false }
-        MagpieTag             = $relMagpie.TagName
-        OptiScalerTag         = $relOptiScaler.TagName
-        ComfyTag              = $relComfy.TagName
-        A1111Tag              = $relA1111.TagName
-        PyTorchOnline         = $torchVerOnline
-        PendingDriversCount   = $pendingPciDrivers.Count
-        UpdatedItems          = $updatedItems
-        SelfPath              = $selfPath
-    }
+    $aiNote = if ($configuredCount -gt 0) { "$configuredCount ambiente(s) SDXL otimizados ($sdxlArgs)" } else { "Variaveis CUDA/PyTorch prontas ($sdxlArgs)" }
+    Write-Log "Otimizacao SDXL / IA aplicada: $aiNote | CUDA_MODULE_LOADING=LAZY | $pfNote" "Green" -Silent:$Silent
 }
 
 function Apply-AudioVisualPreset {
@@ -2319,16 +1908,6 @@ function Start-GameWatcher {
     $lastStateKey      = ''
     $lastHeavySeen     = [DateTime]::MinValue
     $audioConsoleSeen  = $false
-    $lastOnlineCheck   = [DateTime]::MinValue
-    try {
-        $stUp0 = Get-UpdateState
-        if ($stUp0.LastCheckUtc) {
-            $parsedDt = [DateTime]::MinValue
-            if ([DateTime]::TryParse($stUp0.LastCheckUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsedDt)) {
-                $lastOnlineCheck = $parsedDt.ToUniversalTime()
-            }
-        }
-    } catch {}
 
     $cfgInit = Get-ModoJogoConfig
     Write-Log ("Monitor automatico iniciado | GPU: $($Hw.GpuName) ($($Hw.VramMB) MB) | Modo Auto: $($cfgInit.AutoPerfTier) | Jogos/Apps indexados: $($appSets.Games.Count)") "Cyan" -Silent:$Silent
@@ -2337,35 +1916,6 @@ function Start-GameWatcher {
         if (((Get-Date) - $lastScan).TotalSeconds -ge 300) {
             $appSets  = Get-DiscoveredAppSets
             $lastScan = Get-Date
-        }
-
-        if ($AutoCheckUpdates -and $lastStateKey -eq 'Eco') {
-            $utcNow = [DateTime]::UtcNow
-            if (($utcNow - $lastOnlineCheck).TotalHours -ge $UpdateCheckHours) {
-                $lastOnlineCheck = $utcNow
-                if ([System.Net.NetworkInformation.NetworkInterface]::GetIsNetworkAvailable()) {
-                    try {
-                        $prevSelfUp = (Get-UpdateState).LastSelfUpdateUtc
-                        $upAuto = Invoke-HardwareAwareOnlineUpdate -Hw $Hw -AutoApply -UpdateGitAiRepos -Silent
-                        $Hw = Get-HardwareProfile
-                        $appSets = Get-DiscoveredAppSets
-                        $allowRelaunch = $true
-                        if ($prevSelfUp) {
-                            $prevDt = [DateTime]::MinValue
-                            if ([DateTime]::TryParse($prevSelfUp, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$prevDt)) {
-                                if (([DateTime]::UtcNow - $prevDt.ToUniversalTime()).TotalMinutes -lt 15) { $allowRelaunch = $false }
-                            }
-                        }
-                        if ($upAuto.SelfUpdated -and $allowRelaunch -and $env:MODOJOGO_ARGS -eq '-auto') {
-                            $hasTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-                            if ($hasTask) {
-                                Start-Process cmd.exe -ArgumentList "/c timeout /t 4 /nobreak >nul & schtasks /run /tn `"$TaskName`"" -WindowStyle Hidden
-                                exit 0
-                            }
-                        }
-                    } catch {}
-                }
-            }
         }
 
         $cfg   = Get-ModoJogoConfig
@@ -2396,6 +1946,17 @@ function Start-GameWatcher {
                 Write-Log "Programas pesados encerrados. Alternando para MODO ECONOMIA..." "Yellow" -Silent:$Silent
                 Apply-EconomyMode -Hw $Hw -Schemes $Schemes -Silent:$Silent
                 $lastStateKey = 'Eco'
+            } elseif ($lastStateKey -eq 'Eco' -and $cfg.AutoCheckUpdates) {
+                $dueCheck = $true
+                if ($cfg.LastUpdateCheckUtc) {
+                    $dtLast = [DateTime]::MinValue
+                    if ([DateTime]::TryParse($cfg.LastUpdateCheckUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$dtLast)) {
+                        if (([DateTime]::UtcNow - $dtLast.ToUniversalTime()).TotalHours -lt 24) { $dueCheck = $false }
+                    }
+                }
+                if ($dueCheck) {
+                    [void](Invoke-HardwareAwareOnlineUpdates -Hw $Hw -IncludeSelfUpdate -Silent:$Silent)
+                }
             }
         }
         Start-Sleep -Seconds $PollIntervalSec
@@ -2491,14 +2052,18 @@ function Show-Diagnostics {
     Write-Host (" Tipo PC  : {0} | Monitor: {1}x{2} @ {3}Hz" -f $(if ($Hw.IsLaptop) { "Notebook (Bateria)" } else { "Desktop" }), $Hw.DisplayW, $Hw.DisplayH, $Hw.DisplayHz)
     Write-Host (" GPU      : {0} ({1} | {2} MB VRAM{3})" -f $Hw.GpuName, $Hw.GpuVendor, $Hw.VramMB, $(if ($Hw.GpuTempC) { " | $($Hw.GpuTempC) C" } else { "" }))
     Write-Host (" Upscaler : {0}" -f $(if ($Hw.NoTensorCores) { "Sem Tensor Cores -> AMD FSR 1/2/3 + OptiScaler/Magpie recomendado" } else { "Tensor Cores + AMD FSR suportados" }))
-    Write-Host (" Tools UP : Lossless={0} | Magpie={1} | OptiScaler={2}" -f $(if ($ups.LosslessScaling) {"OK"} else {"Nao"}), $(if ($ups.Magpie) {"OK"} else {"Nao"}), $(if ($ups.OptiScaler) {"OK"} else {"Nao"}))
+    $dsVerFile = Join-Path $InstallDir "Tools\DirectStorage\.version_modojogo"
+    $dsCurVer  = if (Test-Path $dsVerFile) { ([System.IO.File]::ReadAllText($dsVerFile, (New-Object System.Text.UTF8Encoding($false)))).Trim() } else { "Sistema" }
+    $lastChk   = if ($cfg.LastUpdateCheckUtc) { $cfg.LastUpdateCheckUtc } else { "Nunca (use [15] / -atualizar)" }
+    Write-Host (" Tools UP : Lossless={0} | Magpie={1} | OptiScaler={2} | DirectStorage={3}" -f $(if ($ups.LosslessScaling) {"OK"} else {"Nao"}), $(if ($ups.Magpie) {"OK"} else {"Nao"}), $(if ($ups.OptiScaler) {"OK"} else {"Nao"}), $dsCurVer)
     Write-Host (" SDXL Env : CUDA_MODULE_LOADING={0} | PYTORCH_CUDA_ALLOC_CONF={1}" -f $(if ($cudaLaz) {$cudaLaz} else {"(padrao)"}), $(if ($ptAlloc) {$ptAlloc} else {"(padrao)"}))
     foreach ($tk in @('Leve','Medio','Boost')) {
         $t = $plan.Tiers[$tk]
         Write-Host (" Perfil   : {0,-6} (Slot {1}) -> PL {2}% | Undervolt + OC (+{3} Core / +{4} Mem MHz)" -f $t.Name, $t.Slot, $t.PowerLimit, $t.CoreMHz, $t.MemMHz)
     }
     Write-Host (" Economia : Eco    (Slot {0}) -> PL {1}% | Undervolt Eficiencia (+{2} MHz base)" -f $EcoSlot, $Hw.EcoPowerPct, $plan.EcoBoostMHz)
-    Write-Host (" Config   : Nivel Auto = {0} | Predefinicao Audio/Imagem = {1}" -f $cfg.AutoPerfTier, $cfg.ActiveAVPreset)
+    Write-Host (" Config   : Nivel Auto = {0} | Predefinicao Audio/Imagem = {1} | Versao = v{2}" -f $cfg.AutoPerfTier, $cfg.ActiveAVPreset, $ScriptVersion)
+    Write-Host (" Online   : AutoCheck = {0} | Ultima Check UTC = {1}" -f $cfg.AutoCheckUpdates, $lastChk)
     Write-Host (" Energia  : GUID Desempenho = $($Schemes.PerfGuid) | GUID Economia = $($Schemes.EcoGuid)")
     Write-Host (" Afterb.  : {0}" -f $(if ($ab) { $ab.ExePath } else { "Nao encontrado" }))
     Write-Host (" OBS      : {0}" -f $(if (Test-Path $obsProf) { ((Get-ChildItem $obsProf -Directory | Select-Object -ExpandProperty Name) -join ', ') } else { "Nao instalado" }))
@@ -2632,11 +2197,408 @@ function Repair-WindowsSystemErrors {
     Write-Log "Verificacao e reparo de erros do Windows concluidos." "Green"
 }
 
+function Compare-SemVerTag {
+    param([string]$LocalVer, [string]$RemoteVer)
+    $lClean = (($LocalVer + '').Trim() -replace '^[vV]', '')
+    $rClean = (($RemoteVer + '').Trim() -replace '^[vV]', '')
+    if (-not $rClean) { return 0 }
+    if (-not $lClean) { return 1 }
+
+    $lBase = ($lClean -split '[-_]')[0]
+    $rBase = ($rClean -split '[-_]')[0]
+    $lNums = @($lBase -split '\.' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+    $rNums = @($rBase -split '\.' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+    if ($lNums.Count -gt 0 -and $rNums.Count -gt 0) {
+        $maxLen = [math]::Max($lNums.Count, $rNums.Count)
+        for ($i = 0; $i -lt $maxLen; $i++) {
+            $lv = if ($i -lt $lNums.Count) { $lNums[$i] } else { 0 }
+            $rv = if ($i -lt $rNums.Count) { $rNums[$i] } else { 0 }
+            if ($rv -gt $lv) { return 1 }
+            if ($rv -lt $lv) { return -1 }
+        }
+        return 0
+    }
+    if ($rClean -ne $lClean) { return 1 }
+    return 0
+}
+
+function Invoke-JsonOnline {
+    param([string]$Url, [int]$TimeoutSec = 7)
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        return Invoke-RestMethod -Uri $Url -Headers @{ 'User-Agent' = 'GoogleGemini-AutoOptimizer'; 'Accept' = 'application/json' } -TimeoutSec $TimeoutSec -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+function Get-GitHubReleaseNoApi {
+    param([string]$RepoSlug, [string]$AssetRegex = '\.(zip|7z)$')
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+    $tag = $null
+    $resolvedSlug = $RepoSlug
+    $url = "https://github.com/$RepoSlug/releases/latest"
+    for ($hop = 0; $hop -lt 4; $hop++) {
+        try {
+            $req = [System.Net.HttpWebRequest]::Create($url)
+            $req.Method = 'HEAD'
+            $req.AllowAutoRedirect = $false
+            $req.Timeout = 6000
+            $req.UserAgent = 'Mozilla/5.0'
+            $resp = $req.GetResponse()
+            $code = [int]$resp.StatusCode
+            $loc  = $resp.Headers['Location']
+            $resp.Close()
+            if ($code -ge 300 -and $code -lt 400 -and $loc) {
+                if ($loc -match 'github\.com/([^/]+/[^/]+)/releases/tag/([^/?#]+)$') {
+                    $resolvedSlug = $matches[1]
+                    $tag = $matches[2]
+                    break
+                }
+                if ($loc -match '^/([^/]+/[^/]+)/releases/tag/([^/?#]+)$') {
+                    $resolvedSlug = $matches[1]
+                    $tag = $matches[2]
+                    break
+                }
+                if ($loc -match '^/') { $url = "https://github.com$loc" } else { $url = $loc }
+            } else { break }
+        } catch { break }
+    }
+
+    $assetUrl = $null
+    $assetName = $null
+    if ($tag) {
+        try {
+            $expHtml = (Invoke-WebRequest -Uri "https://github.com/$resolvedSlug/releases/expanded_assets/$tag" -UseBasicParsing -TimeoutSec 8 -Headers @{ 'User-Agent' = 'Mozilla/5.0' }).Content
+            $hrefMatches = [regex]::Matches($expHtml, 'href="(/[^"]+/releases/download/[^"]+)"', 'IgnoreCase')
+            foreach ($hm in $hrefMatches) {
+                $relPath = $hm.Groups[1].Value
+                $candName = [System.IO.Path]::GetFileName($relPath)
+                if ($candName -match $AssetRegex) {
+                    $assetUrl  = "https://github.com$relPath"
+                    $assetName = $candName
+                    break
+                }
+            }
+        } catch {}
+    }
+
+    if (-not $tag -or (-not $assetUrl)) {
+        $api = Invoke-JsonOnline -Url "https://api.github.com/repos/$resolvedSlug/releases/latest" -TimeoutSec 7
+        if ($api -and $api.tag_name) {
+            if (-not $tag) { $tag = $api.tag_name }
+            if (-not $assetUrl -and $api.assets) {
+                $pickA = $api.assets | Where-Object { $_.name -match $AssetRegex } | Select-Object -First 1
+                if ($pickA) {
+                    $assetUrl  = $pickA.browser_download_url
+                    $assetName = $pickA.name
+                }
+            }
+        }
+    }
+
+    if (-not $tag) { return $null }
+    return [PSCustomObject]@{
+        RepoSlug  = $resolvedSlug
+        Tag       = $tag
+        AssetName = $assetName
+        AssetUrl  = $assetUrl
+    }
+}
+
+function Get-DirectStorageOnlineInfo {
+    $dsJson = Invoke-JsonOnline -Url 'https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.directstorage/index.json' -TimeoutSec 7
+    if (-not $dsJson -or -not $dsJson.versions) { return $null }
+    $latestDs = $dsJson.versions | Where-Object { $_ -notmatch '-' } | Select-Object -Last 1
+    if (-not $latestDs) { return $null }
+    return [PSCustomObject]@{
+        LatestVersion = $latestDs
+        NupkgUrl      = "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.directstorage/$latestDs/microsoft.direct3d.directstorage.$latestDs.nupkg"
+    }
+}
+
+function Get-AiOnlineVersions {
+    $ptJson = Invoke-JsonOnline -Url 'https://pypi.org/pypi/torch/json' -TimeoutSec 7
+    $xfJson = Invoke-JsonOnline -Url 'https://pypi.org/pypi/xformers/json' -TimeoutSec 7
+    $cuRel  = Get-GitHubReleaseNoApi -RepoSlug 'Comfy-Org/ComfyUI' -AssetRegex '\.(7z|zip)$'
+    return [PSCustomObject]@{
+        TorchLatest    = if ($ptJson -and $ptJson.info) { $ptJson.info.version } else { $null }
+        XformersLatest = if ($xfJson -and $xfJson.info) { $xfJson.info.version } else { $null }
+        ComfyUILatest  = if ($cuRel) { $cuRel.Tag } else { $null }
+    }
+}
+
+function Invoke-ScriptSelfUpdate {
+    param([switch]$Apply, [switch]$Force, [switch]$Silent)
+    if (-not $UpstreamOwner -or -not $UpstreamRepo -or -not $UpstreamFile) { return $null }
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+
+    $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $rawUrl = "https://raw.githubusercontent.com/$UpstreamOwner/$UpstreamRepo/main/$UpstreamFile`?t=$nonce"
+    $res = [PSCustomObject]@{
+        LocalVersion    = $ScriptVersion
+        RemoteVersion   = $null
+        UpdateAvailable = $false
+        Applied         = $false
+        SourceUrl       = "https://raw.githubusercontent.com/$UpstreamOwner/$UpstreamRepo/main/$UpstreamFile"
+        Error           = $null
+    }
+
+    try {
+        $resp = Invoke-WebRequest -Uri $rawUrl -UseBasicParsing -TimeoutSec 12 -Headers @{ 'User-Agent' = 'GoogleGemini-AutoOptimizer'; 'Cache-Control' = 'no-cache' } -ErrorAction Stop
+        $remoteText = [string]$resp.Content
+        if ($remoteText -match "(?m)^\`$(?:ScriptVersion|OptVersion)\s*=\s*'([^']+)'") {
+            $res.RemoteVersion = $matches[1].Trim()
+        }
+        if (-not $res.RemoteVersion) {
+            $relFallback = Get-GitHubReleaseNoApi -RepoSlug "$UpstreamOwner/$UpstreamRepo"
+            if ($relFallback -and $relFallback.Tag) { $res.RemoteVersion = $relFallback.Tag.Trim() }
+        }
+        if (-not $res.RemoteVersion) {
+            $res.Error = "Versao remota nao encontrada no script upstream."
+            return $res
+        }
+
+        $cmp = Compare-SemVerTag -LocalVer $ScriptVersion -RemoteVer $res.RemoteVersion
+        $res.UpdateAvailable = ($cmp -gt 0) -or $Force
+
+        if ($res.UpdateAvailable -and $Apply) {
+            $idxMarker = $remoteText.IndexOf(':: === INICIO_POWERSHELL ===')
+            if ($idxMarker -lt 0 -or $remoteText.Length -lt 8000) {
+                $res.Error = "Download remoto invalido ou incompleto (abortado por seguranca)."
+                return $res
+            }
+            $psBody = $remoteText.Substring($idxMarker + (':: === INICIO_POWERSHELL ===').Length)
+            $tks = $null; $astErrs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput($psBody, [ref]$tks, [ref]$astErrs)
+            if ($astErrs -and $astErrs.Count -gt 0) {
+                $res.Error = "Codigo remoto falhou na validacao AST ($($astErrs.Count) erro(s)); mantendo copia local segura."
+                return $res
+            }
+
+            $remoteOut = ($remoteText -replace "\r?\n", "`r`n")
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            $targets = [System.Collections.Generic.List[string]]::new()
+            if ($env:MODOJOGO_SELF -and (Test-Path $env:MODOJOGO_SELF)) { [void]$targets.Add($env:MODOJOGO_SELF) }
+            $instBat = Join-Path $InstallDir $UpstreamFile
+            if ((Test-Path $InstallDir) -and (Test-Path $instBat) -and ($targets -notcontains $instBat)) { [void]$targets.Add($instBat) }
+            $deskBat = Join-Path ([Environment]::GetFolderPath('Desktop')) $UpstreamFile
+            if ((Test-Path $deskBat) -and ($targets -notcontains $deskBat)) { [void]$targets.Add($deskBat) }
+
+            foreach ($tPath in $targets) {
+                Copy-Item -Path $tPath -Destination "$tPath.bak_update" -Force -ErrorAction SilentlyContinue
+                [System.IO.File]::WriteAllText($tPath, $remoteOut, $utf8NoBom)
+                Write-Log "Codigo atualizado (v$ScriptVersion -> v$($res.RemoteVersion)) em: $tPath" "Green" -Silent:$Silent
+            }
+            $res.Applied = ($targets.Count -gt 0)
+        }
+    } catch {
+        $res.Error = $_.Exception.Message
+    }
+    return $res
+}
+
+function Invoke-HardwareAwareOnlineUpdates {
+    param($Hw, [switch]$Apply, [switch]$ApplyComponents, [switch]$IncludeSelfUpdate, [switch]$ForceSelf, [switch]$Silent)
+    $doApplyComp = ($Apply -or $ApplyComponents)
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+    # 1. Re-verificar hardware atual do PC antes de decidir quaisquer atualizacoes
+    $Hw = Get-HardwareProfile
+    $ssdCount = @($Hw.Disks | Where-Object { $_.MediaType -eq 'SSD' }).Count
+    $hddCount = @($Hw.Disks | Where-Object { $_.MediaType -eq 'HDD' }).Count
+
+    Write-Log "`n=== VERIFICACAO & ATUALIZACAO ONLINE (HARDWARE-AWARE v$ScriptVersion) ===" "Cyan" -Silent:$Silent
+    Write-Log ("Hardware Detectado: CPU=$($Hw.CpuName) | RAM=$($Hw.RamTotalGB)GB | GPU=$($Hw.GpuName) ($($Hw.GpuVendor) / $($Hw.VramMB)MB)" ) "Gray" -Silent:$Silent
+    Write-Log ("Perfil Arquitetura: NoTensorCores=$($Hw.NoTensorCores) | PascalOrOlder=$($Hw.IsPascalOrOlder) | Monitor=$($Hw.DisplayW)x$($Hw.DisplayH)@$($Hw.DisplayHz)Hz | SSD=$ssdCount / HDD=$hddCount") "Gray" -Silent:$Silent
+
+    # 2. Codigo Proprio (Script Auto-Update via GitHub)
+    $selfRes = $null
+    if ($IncludeSelfUpdate -or $Apply -or $ForceSelf) {
+        $selfRes = Invoke-ScriptSelfUpdate -Apply:$Apply -Force:$ForceSelf -Silent:$Silent
+        if ($selfRes) {
+            if ($selfRes.Error) {
+                Write-Log ("[Codigo] Verificacao offline/aviso: $($selfRes.Error)") "Yellow" -Silent:$Silent
+            } elseif ($selfRes.Applied) {
+                Write-Log ("[Codigo] Atualizado automaticamente: v$($selfRes.LocalVersion) -> v$($selfRes.RemoteVersion)") "Green" -Silent:$Silent
+            } elseif ($selfRes.UpdateAvailable) {
+                Write-Log ("[Codigo] Nova versao disponivel: v$($selfRes.RemoteVersion) (local: v$($selfRes.LocalVersion)) -> use -atualizar ou menu!") "Yellow" -Silent:$Silent
+            } else {
+                Write-Log ("[Codigo] Script ja esta atualizado (v$($selfRes.LocalVersion)).") "Green" -Silent:$Silent
+            }
+        }
+    }
+
+    # 3. AMD FSR (Magpie + OptiScaler DLSS->FSR Bridge) adaptado a GPU atual
+    $toolsRoot = Join-Path $InstallDir "Tools"
+    $magVerFile = Join-Path $toolsRoot "Magpie\.version_modojogo"
+    $optVerFile = Join-Path $toolsRoot "OptiScaler\.version_modojogo"
+    $localMag = if (Test-Path (Join-Path $toolsRoot "Magpie\Magpie.exe")) { if (Test-Path $magVerFile) { ([System.IO.File]::ReadAllText($magVerFile, $utf8NoBom)).Trim() } else { "instalado" } } else { "nao instalado" }
+    $localOpt = if (Test-Path $optVerFile) { ([System.IO.File]::ReadAllText($optVerFile, $utf8NoBom)).Trim() } elseif ((Get-ChildItem (Join-Path $toolsRoot "OptiScaler") -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue).Count -gt 0) { "instalado" } else { "nao instalado" }
+
+    $relMag = Get-GitHubReleaseNoApi -RepoSlug 'Blinue/Magpie' -AssetRegex 'x64.*\.zip$|\.zip$'
+    $relOpt = Get-GitHubReleaseNoApi -RepoSlug 'optiscaler/OptiScaler' -AssetRegex '\.(zip|7z)$'
+    $ups = Find-ExistingUpscalers
+    $lsVer = if ($ups.LosslessScaling) { ([Diagnostics.FileVersionInfo]::GetVersionInfo($ups.LosslessScaling)).ProductVersion } else { "nao instalado" }
+    $fsrHint = if ($Hw.NoTensorCores) { "GPU sem Tensor Cores: OptiScaler + Magpie recomendados" } else { "GPU com Tensor Cores: DLSS + FSR suportados" }
+    Write-Log ("[AMD FSR] Magpie: local=$localMag / online=$(if($relMag){$relMag.Tag}else{'offline'}) | OptiScaler: local=$localOpt / online=$(if($relOpt){$relOpt.Tag}else{'offline'}) | Lossless=$lsVer" ) "Cyan" -Silent:$Silent
+    Write-Log ("          Estrategia HW: $fsrHint") "Gray" -Silent:$Silent
+
+    if ($doApplyComp) {
+        if ((Test-IsAdmin)) {
+            Install-FsrToolchain -Hw $Hw -UpdateOnly -NonInteractive
+        }
+        Optimize-AmdFsrAndUpscaling -Hw $Hw -Silent:$Silent
+    }
+
+    # 4. DSL / Microsoft DirectStorage & Pipeline I/O para SSD/Games
+    $dsInfo = Get-DirectStorageOnlineInfo
+    $dsDir = Join-Path $toolsRoot "DirectStorage"
+    $dsVerFile = Join-Path $dsDir ".version_modojogo"
+    $localDs = if (Test-Path $dsVerFile) { ([System.IO.File]::ReadAllText($dsVerFile, $utf8NoBom)).Trim() } else { "nao cacheado" }
+    Write-Log ("[DSL / DirectStorage] Cache local=$localDs | Microsoft NuGet online=$(if($dsInfo){$dsInfo.LatestVersion}else{'offline'}) | SSDs ativos=$ssdCount") "Cyan" -Silent:$Silent
+
+    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and (Test-Path $_.Root) }
+    if ($doApplyComp -and $dsInfo -and (Test-IsAdmin)) {
+        $dsNeedsUpdate = (-not (Test-Path (Join-Path $dsDir "dstorage.dll"))) -or ($localDs -eq 'nao cacheado') -or ((Compare-SemVerTag -LocalVer $localDs -RemoteVer $dsInfo.LatestVersion) -gt 0)
+        if ($dsNeedsUpdate) {
+            try {
+                $pkgTmp = Join-Path $env:TEMP ("dstorage_" + $dsInfo.LatestVersion + ".nupkg")
+                $extTmp = Join-Path $env:TEMP ("dstorage_ext_" + $dsInfo.LatestVersion)
+                Invoke-WebRequest -Uri $dsInfo.NupkgUrl -OutFile $pkgTmp -UseBasicParsing -TimeoutSec 35
+                if (Expand-ArchiveSmart -ArchivePath $pkgTmp -DestDir $extTmp) {
+                    $bin64 = Join-Path $extTmp "native\bin\x64"
+                    if (Test-Path $bin64) {
+                        New-Item -Path $dsDir -ItemType Directory -Force | Out-Null
+                        Copy-Item -Path (Join-Path $bin64 "*.dll") -Destination $dsDir -Force
+                        [System.IO.File]::WriteAllText($dsVerFile, $dsInfo.LatestVersion, $utf8NoBom)
+                        Write-Log "[DSL / DirectStorage] DLLs oficiais x64 atualizadas ($($dsInfo.LatestVersion)) em $dsDir" "Green" -Silent:$Silent
+                    }
+                }
+                Remove-Item $pkgTmp -Force -ErrorAction SilentlyContinue
+                Remove-Item $extTmp -Recurse -Force -ErrorAction SilentlyContinue
+            } catch {
+                Write-Log "[DSL / DirectStorage] Falha ao baixar pacote NuGet ($($_.Exception.Message))." "Yellow" -Silent:$Silent
+            }
+        }
+
+        # Verificar e atualizar dstorage.dll 1.x desatualizada em jogos parados (com backup)
+        $srcDs1 = Join-Path $dsDir "dstorage.dll"
+        $srcDs2 = Join-Path $dsDir "dstoragecore.dll"
+        if (Test-Path $srcDs1) {
+            $newMajor = ($dsInfo.LatestVersion -split '\.')[0]
+            foreach ($drv in $drives) {
+                foreach ($sub in @('SteamLibrary\steamapps\common','Program Files (x86)\Steam\steamapps\common','Epic Games','Games','Jogos')) {
+                    $base = Join-Path $drv.Root $sub
+                    if (Test-Path $base) {
+                        Get-ChildItem -Path $base -Filter "dstorage.dll" -Recurse -Depth 8 -File -ErrorAction SilentlyContinue | ForEach-Object {
+                            $fv = ([Diagnostics.FileVersionInfo]::GetVersionInfo($_.FullName)).ProductVersion
+                            $curMaj = ($fv -split '\.')[0]
+                            $gDir = $_.DirectoryName
+                            $runningInDir = (Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($gDir, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+                            if (-not $runningInDir -and $curMaj -eq $newMajor -and ((Compare-SemVerTag -LocalVer $fv -RemoteVer $dsInfo.LatestVersion) -gt 0)) {
+                                if (-not (Test-Path "$($_.FullName).bak_modojogo")) { Copy-Item $_.FullName "$($_.FullName).bak_modojogo" -Force }
+                                Copy-Item $srcDs1 $_.FullName -Force
+                                $coreDst = Join-Path $gDir "dstoragecore.dll"
+                                if ((Test-Path $srcDs2) -and (Test-Path $coreDst)) {
+                                    if (-not (Test-Path "$coreDst.bak_modojogo")) { Copy-Item $coreDst "$coreDst.bak_modojogo" -Force }
+                                    Copy-Item $srcDs2 $coreDst -Force
+                                }
+                                Write-Log "[DSL] DirectStorage atualizado no jogo $gDir ($fv -> $($dsInfo.LatestVersion))" "Green" -Silent:$Silent
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    # 5. SDXL / IA Local (ComfyUI, WebUI/Forge, PyTorch, xFormers + flags sob medida por GPU)
+    $aiOnline = Get-AiOnlineVersions
+    Write-Log ("[SDXL / IA] Online PyTorch=$($aiOnline.TorchLatest) | xFormers=$($aiOnline.XformersLatest) | ComfyUI=$($aiOnline.ComfyUILatest)") "Cyan" -Silent:$Silent
+    if ($Hw.IsPascalOrOlder) {
+        Write-Log ("            Nota GPU ($($Hw.GpuName)): Arquitetura Pascal/sem Tensor Cores -> manter CUDA 11.8/12.1/12.4 compativel + --lowvram --no-half-vae.") "Gray" -Silent:$Silent
+    }
+
+    $aiRoots = [System.Collections.Generic.List[string]]::new()
+    foreach ($drv in $drives) {
+        Get-ChildItem -Path $drv.Root -Directory -Depth 2 -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match 'ComfyUI|stable-diffusion|webui|forge|Fooocus|SDNext|SD\.Next|InvokeAI'
+        } | ForEach-Object { $aiRoots.Add($_.FullName) }
+    }
+
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+    foreach ($aiDir in $aiRoots) {
+        $pyLocal = @((Join-Path $aiDir 'venv\Scripts\python.exe'), (Join-Path $aiDir 'python_embeded\python.exe'), (Join-Path $aiDir 'system\python\python.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ($pyLocal) {
+            $torchVerLocal = (& $pyLocal -c "import torch; print(torch.__version__, 'CUDA=' + str(torch.version.cuda))" 2>$null)
+            if ($torchVerLocal) { Write-Log "            Local [$aiDir] -> torch=$torchVerLocal" "Gray" -Silent:$Silent }
+        }
+        if ($gitCmd -and (Test-Path (Join-Path $aiDir '.git'))) {
+            & git -C $aiDir fetch --quiet 2>$null
+            $behind = (& git -C $aiDir rev-list --count 'HEAD..@{u}' 2>$null)
+            if ($behind -match '^\d+$' -and [int]$behind -gt 0) {
+                $dirty = & git -C $aiDir status --porcelain 2>$null
+                if ($doApplyComp -and (-not $dirty)) {
+                    & git -C $aiDir pull --ff-only 2>$null | Out-Null
+                    Write-Log "[SDXL / IA] Repositorio atualizado via git pull ($behind commits): $aiDir" "Green" -Silent:$Silent
+                } else {
+                    Write-Log "[SDXL / IA] $behind atualizacao(oes) upstream em $aiDir" "Yellow" -Silent:$Silent
+                }
+            }
+        }
+    }
+    if ($doApplyComp) { Optimize-SdxlAndAiEnvironment -Hw $Hw -Silent:$Silent }
+
+    # 6. Drivers de Hardware via Windows Update (casados com PnP HardwareIDs ao vivo)
+    $drvFoundCount = 0
+    try {
+        $pnpIds = @(Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Class -in @('Display','Media','System') -and $_.InstanceId -match '^PCI\\' } | Select-Object -ExpandProperty HardwareID)
+        $sess = New-Object -ComObject Microsoft.Update.Session
+        $srch = $sess.CreateUpdateSearcher()
+        $wuRes = $srch.Search("IsInstalled=0 and Type='Driver'")
+        $drvColl = New-Object -ComObject Microsoft.Update.UpdateColl
+        foreach ($u in $wuRes.Updates) {
+            $uHw = ($u.DriverHardwareID -join ';')
+            $matchedHw = $false
+            foreach ($pidStr in $pnpIds) {
+                if ($pidStr -and $uHw -and ($uHw -match [regex]::Escape(($pidStr -split '&SUBSYS')[0]))) { $matchedHw = $true; break }
+            }
+            if ($matchedHw) { [void]$drvColl.Add($u) }
+        }
+        $drvFoundCount = $drvColl.Count
+        if ($drvFoundCount -gt 0) {
+            if ($doApplyComp -and (Test-IsAdmin)) {
+                $dl = $sess.CreateUpdateDownloader(); $dl.Updates = $drvColl; [void]$dl.Download()
+                $in = $sess.CreateUpdateInstaller(); $in.Updates = $drvColl; [void]$in.Install()
+                Write-Log "[Drivers HW] $drvFoundCount driver(s) oficiais instalados via Windows Update." "Green" -Silent:$Silent
+            } else {
+                Write-Log "[Drivers HW] $drvFoundCount driver(s) oficiais disponiveis para o hardware atual no Windows Update." "Yellow" -Silent:$Silent
+            }
+        } else {
+            Write-Log "[Drivers HW] Drivers PCI/GPU/Audio principais em dia no Windows Update." "Gray" -Silent:$Silent
+        }
+    } catch {}
+
+    [void](Save-ModoJogoConfig -LastUpdateCheckUtc ([DateTime]::UtcNow.ToString('o')))
+    return [PSCustomObject]@{
+        Hardware       = $Hw
+        SelfUpdate     = $selfRes
+        MagpieLatest   = if ($relMag) { $relMag.Tag } else { $null }
+        OptiLatest     = if ($relOpt) { $relOpt.Tag } else { $null }
+        DirectStorage  = if ($dsInfo) { $dsInfo.LatestVersion } else { $null }
+        AiOnline       = $aiOnline
+        DriversPending = $drvFoundCount
+    }
+}
+
 # === ROTEAMENTO DE EXECUCAO ===
 $argNorm = ($env:MODOJOGO_ARGS + "").Trim().ToLower()
 switch ($argNorm) {
     "-auto"         { Start-GameWatcher -Silent; exit 0 }
     "-monitor"      { Start-GameWatcher; exit 0 }
+    "-checkupdate"  { [void](Invoke-HardwareAwareOnlineUpdates -IncludeSelfUpdate); exit 0 }
+    "-atualizar"    { [void](Invoke-HardwareAwareOnlineUpdates -Apply -IncludeSelfUpdate); exit 0 }
     "-leve"         { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Leve'  -Hw $Hw -Schemes $S; exit 0 }
     "-desempenho"   { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Boost' -Hw $Hw -Schemes $S; exit 0 }
     "-medio"        { $Hw = Get-HardwareProfile; $S = Get-PowerSchemeIds; Apply-PerformanceMode -Tier 'Medio' -Hw $Hw -Schemes $S; exit 0 }
@@ -2649,8 +2611,6 @@ switch ($argNorm) {
     "-instalarfsr"  { $Hw = Get-HardwareProfile; Optimize-AmdFsrAndUpscaling -Hw $Hw; Install-FsrToolchain -Hw $Hw; exit 0 }
     "-sdxl"         { $Hw = Get-HardwareProfile; Optimize-SdxlAndAiEnvironment -Hw $Hw; exit 0 }
     "-reparar"      { $Hw = Get-HardwareProfile; Repair-WindowsSystemErrors -Hw $Hw; exit 0 }
-    "-atualizar"    { $Hw = Get-HardwareProfile; Invoke-HardwareAwareOnlineUpdate -Hw $Hw -AutoApply -UpdateGitAiRepos -Force | Out-Null; exit 0 }
-    "-verificar"    { $Hw = Get-HardwareProfile; Invoke-HardwareAwareOnlineUpdate -Hw $Hw -CheckOnly | Out-Null; exit 0 }
     "-calibrar"     {
         $Hw = Get-HardwareProfile
         $S  = Get-PowerSchemeIds
@@ -2691,7 +2651,7 @@ while ($true) {
     Write-Host " [12] AMD FSR Universal + Jogos  (Calibrar CS2/OW + Instalar Magpie & OptiScaler)"
     Write-Host " [13] Otimizacoes SDXL & IA      (CUDA Lazy, PyTorch Low-VRAM e Launchers WebUI)"
     Write-Host " [14] Reparar Erros do Windows   (ASPM, Drivers, WMI, HVCI 124, DISM/SFC, Boot)"
-    Write-Host " [15] Verificar/Atualizar Online (Codigo + FSR/DSL + SDXL/IA + Drivers por Hardware)"
+    Write-Host " [15] Verificar & Atualizar Online (Codigo, Drivers, AMD FSR, DSL/DirectStorage & SDXL)" -ForegroundColor Yellow
     Write-Host " [0] Sair"
     Write-Host ""
     $op = Read-Host "Escolha uma opcao"
@@ -2794,23 +2754,18 @@ while ($true) {
             Pause
         }
         "15" {
-            $Hw = Get-HardwareProfile
-            $chk = Invoke-HardwareAwareOnlineUpdate -Hw $Hw -CheckOnly
-            $ansUp = Read-Host "`nDeseja baixar e aplicar agora as atualizacoes de codigo (.bat), FSR/DSL, SDXL/IA e drivers para este PC? [S/N]"
-            if ($ansUp -match '^[sS]') {
-                $askFsrNew = ''
-                $upsNow = Find-ExistingUpscalers
-                if (-not $upsNow.Magpie -and -not $upsNow.OptiScaler) {
-                    $askFsrNew = Read-Host "Instalar tambem ferramentas AMD FSR/DSL ausentes (Magpie + OptiScaler)? [S/N]"
+            Write-Host "`n [1] Apenas verificar versoes online x hardware do PC" -ForegroundColor Cyan
+            Write-Host " [2] Verificar e APLICAR atualizacoes (Codigo + Magpie + OptiScaler + DirectStorage + SDXL + Drivers)" -ForegroundColor Green
+            $upSub = Read-Host "Escolha [1/2]"
+            if ($upSub -eq "2") {
+                $rUp = Invoke-HardwareAwareOnlineUpdates -Hw $Hw -Apply -IncludeSelfUpdate
+                if ($rUp -and $rUp.SelfUpdate -and $rUp.SelfUpdate.Applied) {
+                    Write-Host "`n[!] O codigo proprio foi atualizado no disco. Feche e reabra o script para usar a nova versao." -ForegroundColor Yellow
+                    Pause
+                    exit 0
                 }
-                $upDone = Invoke-HardwareAwareOnlineUpdate -Hw $Hw -AutoApply -UpdateGitAiRepos -Force -InstallMissingFsrTools:($askFsrNew -match '^[sS]')
-                if ($upDone.SelfUpdated -and $upDone.SelfPath -and (Test-Path $upDone.SelfPath)) {
-                    $reopen = Read-Host "`nO codigo do script foi atualizado! Deseja reabrir a nova versao agora? [S/N]"
-                    if ($reopen -match '^[sS]') {
-                        Start-Process -FilePath $upDone.SelfPath
-                        exit 0
-                    }
-                }
+            } else {
+                [void](Invoke-HardwareAwareOnlineUpdates -Hw $Hw -IncludeSelfUpdate)
             }
             Pause
         }
